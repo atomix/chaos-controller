@@ -1,0 +1,15 @@
+apiVersion: chaos.atomix.io/v1alpha1
+kind: ChaosMonkey
+metadata:
+  name: crash-monkey
+spec:
+  rateSeconds: 60
+  jitter: .5
+  selector:
+    matchPods:
+      - atomix-0
+      - atomix-1
+      - atomix-2
+  crash:
+    crashStrategy:
+      type: Container
