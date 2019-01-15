@@ -100,6 +100,8 @@ func (r *ReconcileChaosMonkey) Reconcile(request reconcile.Request) (reconcile.R
 		return reconcile.Result{}, err
 	}
 
+	v1alpha1.SetDefaults(instance)
+
 	monkey := r.chaos.GetOrCreateMonkey(request.NamespacedName, instance)
 	if !monkey.Started {
 		err := monkey.Start()
