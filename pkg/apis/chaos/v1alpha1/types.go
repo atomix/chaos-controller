@@ -9,11 +9,6 @@ import (
 
 // Chaos defines the chaos monkey configuration
 type ChaosMonkeySpec struct {
-	Monkeys []Monkey `json:"monkeys,omitempty"`
-}
-
-// Chaos monkey configuration
-type Monkey struct {
 	Name          string           `json:"name,omitempty"`
 	RateSeconds   *int64           `json:"rateSeconds,omitempty"`
 	PeriodSeconds *int64           `json:"periodSeconds,omitempty"`
@@ -27,13 +22,7 @@ type Monkey struct {
 // Monkey selector
 type MonkeySelector struct {
 	*metav1.LabelSelector `json:",inline"`
-	*GroupSelector        `json:",inline"`
 	*PodSelector          `json:",inline"`
-}
-
-// Group selector
-type GroupSelector struct {
-	MatchGroups []string `json:"groups,omitempty"`
 }
 
 // Pod selector
@@ -139,8 +128,7 @@ const (
 
 // ChaosMonkeyStatus defines the observed state of ChaosMonkey
 type ChaosMonkeyStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
+	Running bool `json:"running,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
