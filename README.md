@@ -1,34 +1,34 @@
-# Chaos Operator
+# Chaos Controller
 
-The Chaos Operator provides a generic operator for chaos testing in [Kubernetes][Kubernetes].
+The Chaos Controller provides a controller for chaos testing in [Kubernetes][Kubernetes].
 
 ## Setup
 
-Before running the operator, register the ChaosMonkey CRD:
+Before running the controller, register the ChaosMonkey CRD:
 
 ```
-$ kubectl create -f deploy/crds/chaosmonkey_crd.yaml
+$ kubectl create -f deploy/chaosmonkey.yaml
 ```
 
-Setup RBAC and deploy the operator:
+Setup RBAC and deploy the controller:
 
 ```
 $ kubectl create -f deploy/service_account.yaml
 $ kubectl create -f deploy/role.yaml
 $ kubectl create -f deploy/role_binding.yaml
-$ kubectl create -f deploy/operator.yaml
+$ kubectl create -f deploy/controller.yaml
 ```
 
-Example resources can be found in the `deploy/crds` directory:
+Example resources can be found in the `example` directory:
 ```
-$ kubectl create -f deploy/crds/crash_monkey.yaml
-$ kubectl create -f deploy/crds/partition_monkey.yaml
-$ kubectl create -f deploy/crds/stress_monkey.yaml
+$ kubectl create -f example/crash_monkey.yaml
+$ kubectl create -f example/partition_monkey.yaml
+$ kubectl create -f example/stress_monkey.yaml
 ```
 
 ## Usage
 
-The chaos operator provides a full suite of tools for chaos testing, injecting
+The chaos controller provides a full suite of tools for chaos testing, injecting
 a variety of failures into the nodes and in the k8s pods and networks. Each monkey
 plays a specific role in injecting failures into the cluster:
 

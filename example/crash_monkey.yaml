@@ -7,9 +7,9 @@ spec:
   jitter: .5
   selector:
     matchPods:
-      - atomix-0
-      - atomix-1
-      - atomix-2
+      - raft-group-0
+      - raft-group-1
+      - raft-group-2
   crash:
     crashStrategy:
       type: Container
