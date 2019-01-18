@@ -1,0 +1,12 @@
+apiVersion: v1alpha1
+name: chaos-controller
+version: 0.1.0
+kubeVersion: ">=1.12.0"
+appVersion: 0.1.0
+description: Chaos controller
+keywords:
+  - chaos
+home: https://atomix.io
+maintainers:
+  - name: kuujo
+    email: jordan@opennetworking.org
