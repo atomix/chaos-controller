@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-var log = logf.Log.WithName("chaos_atomix")
+var log = logf.Log.WithName("chaos_controller")
 
 var _ manager.Runnable = &ChaosController{}
 

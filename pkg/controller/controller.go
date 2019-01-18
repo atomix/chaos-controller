@@ -35,7 +35,7 @@ func AddController(mgr manager.Manager) error {
 	}
 
 	// Create a new controller
-	c, err := controller.New("chaosmonkey-controller", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New("chaos", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}
