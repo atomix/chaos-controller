@@ -24,8 +24,8 @@ import (
 )
 
 type PartitionMonkey struct {
-	context  Context
-	config   *v1alpha1.PartitionMonkey
+	context Context
+	config  *v1alpha1.PartitionMonkey
 }
 
 type PartitionIsolateMonkey struct {
@@ -60,6 +60,65 @@ func (m *PartitionIsolateMonkey) run(pods []v1.Pod, stop <-chan struct{}) {
 			_, err := m.context.exec(local, &container, "bash", "-c", fmt.Sprintf("iptables -D INPUT -s %s -j DROP -w", remote.Status.PodIP))
 			if err != nil {
 				m.context.log.Error(err, "Failed to isolate pod", "pod", local.Name, "namespace", local.Namespace)
+			}
+		}
+	}
+}
+
+type PartitionHalvesMonkey struct {
+	*PartitionMonkey
+}
+
+func (m *PartitionHalvesMonkey) run(pods []v1.Pod, stop <-chan struct{}) {
+	// Split the set of pods into two halves.
+	left, right := []v1.Pod{}, []v1.Pod{}
+	for i, pod := range pods {
+		if i%2 == 0 {
+			left = append(left, pod)
+		} else {
+			right = append(right, pod)
+		}
+	}
+
+	log.Info("Partitioning cluster into halves")
+
+	// Iterate through both the left and right partitions and partition the nodes from each other.
+	for _, leftPod := range left {
+		for _, rightPod := range right {
+			if leftPod.Status.PodIP != "" {
+				_, err := m.context.exec(rightPod, &rightPod.Spec.Containers[0], "bash", "-c", fmt.Sprintf("iptables -A INPUT -s %s -j DROP -w", leftPod.Status.PodIP))
+				if err != nil {
+					m.context.log.Error(err, "Failed to partition pod", "pod", rightPod.Name, "namespace", rightPod.Namespace)
+				}
+			}
+			if rightPod.Status.PodIP != "" {
+				_, err := m.context.exec(leftPod, &leftPod.Spec.Containers[0], "bash", "-c", fmt.Sprintf("iptables -A INPUT -s %s -j DROP -w", rightPod.Status.PodIP))
+				if err != nil {
+					m.context.log.Error(err, "Failed to partition pod", "pod", leftPod.Name, "namespace", leftPod.Namespace)
+				}
+			}
+		}
+	}
+
+	// Wait for the monkey to be stopped.
+	<-stop
+
+	log.Info("Healing partition halves")
+
+	// Iterate through both the left and right partitions and restore the routing tables.
+	for _, leftPod := range left {
+		for _, rightPod := range right {
+			if leftPod.Status.PodIP != "" {
+				_, err := m.context.exec(rightPod, &rightPod.Spec.Containers[0], "bash", "-c", fmt.Sprintf("iptables -D INPUT -s %s -j DROP -w", leftPod.Status.PodIP))
+				if err != nil {
+					m.context.log.Error(err, "Failed to partition pod", "pod", rightPod.Name, "namespace", rightPod.Namespace)
+				}
+			}
+			if rightPod.Status.PodIP != "" {
+				_, err := m.context.exec(leftPod, &leftPod.Spec.Containers[0], "bash", "-c", fmt.Sprintf("iptables -D INPUT -s %s -j DROP -w", rightPod.Status.PodIP))
+				if err != nil {
+					m.context.log.Error(err, "Failed to partition pod", "pod", leftPod.Name, "namespace", leftPod.Namespace)
+				}
 			}
 		}
 	}

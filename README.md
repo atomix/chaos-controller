@@ -134,6 +134,7 @@ spec:
 
 The `partition` configuration supports a `partitionStrategy` with the following options:
 * `Isolate` - isolates a single random node in the cluster from all other nodes
+* `Halves` - splits the cluster into two halves
 * `Bridge` - splits the cluster into two halves with a single bridge node able to
 communicate with each half (for testing consensus)
 

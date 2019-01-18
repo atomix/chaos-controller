@@ -151,6 +151,11 @@ func (c *ChaosController) newHandler(monkey *v1alpha1.ChaosMonkey) MonkeyHandler
 				context: ctx,
 				config:  monkey.Spec.Partition,
 			}}
+		case v1alpha1.PartitionHalves:
+			return &PartitionHalvesMonkey{&PartitionMonkey{
+				context: ctx,
+				config:  monkey.Spec.Partition,
+			}}
 		case v1alpha1.PartitionBridge:
 			return &PartitionBridgeMonkey{&PartitionMonkey{
 				context: ctx,

@@ -61,6 +61,7 @@ type PartitionStrategyType string
 
 const (
 	PartitionIsolate PartitionStrategyType = "Isolate"
+	PartitionHalves  PartitionStrategyType = "Halves"
 	PartitionBridge  PartitionStrategyType = "Bridge"
 )
 
