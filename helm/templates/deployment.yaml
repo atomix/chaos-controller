@@ -6,25 +6,25 @@ metadata:
   release: "{{ .Release.Name }}"
   heritage: "{{ .Release.Service }}"
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
-      name: chaos-operator
+      name: {{ template "fullname" . }}
   template:
     metadata:
       labels:
-        name: chaos-operator
+        name: {{ template "fullname" . }}
     spec:
-      serviceAccountName: chaos-operator
+      serviceAccountName: {{ template "fullname" . }}
       containers:
-        - name: chaos-operator
+        - name: {{ template "fullname" . }}
           # Replace this with the built image name
           image: REPLACE_IMAGE
           ports:
           - containerPort: 60000
             name: metrics
           command:
-          - chaos-operator
+          - chaos-controller
           imagePullPolicy: Always
           readinessProbe:
             exec:
@@ -44,4 +44,4 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
-              value: "chaos-operator"
+              value: "{{ template "fullname" . }}"

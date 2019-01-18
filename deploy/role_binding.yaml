@@ -1,11 +1,11 @@
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: chaos-operator
+  name: chaos-controller
 subjects:
 - kind: ServiceAccount
-  name: chaos-operator
+  name: chaos-controller
 roleRef:
   kind: Role
-  name: chaos-operator
+  name: chaos-controller
   apiGroup: rbac.authorization.k8s.io

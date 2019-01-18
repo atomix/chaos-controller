@@ -4,4 +4,4 @@ RUN apk upgrade --update --no-cache
 
 USER nobody
 
-ADD build/_output/bin/chaos-operator /usr/local/bin/chaos-operator
+ADD build/_output/bin/chaos-controller /usr/local/bin/chaos-controller

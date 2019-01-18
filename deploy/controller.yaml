@@ -1,27 +1,27 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: chaos-operator
+  name: chaos-controller
 spec:
   replicas: 1
   selector:
     matchLabels:
-      name: chaos-operator
+      name: chaos-controller
   template:
     metadata:
       labels:
-        name: chaos-operator
+        name: chaos-controller
     spec:
-      serviceAccountName: chaos-operator
+      serviceAccountName: chaos-controller
       containers:
-        - name: chaos-operator
+        - name: chaos-controller
           # Replace this with the built image name
           image: REPLACE_IMAGE
           ports:
           - containerPort: 60000
             name: metrics
           command:
-          - chaos-operator
+          - chaos-controller
           imagePullPolicy: Always
           readinessProbe:
             exec:
@@ -41,4 +41,4 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: OPERATOR_NAME
-              value: "chaos-operator"
+              value: "chaos-controller"
