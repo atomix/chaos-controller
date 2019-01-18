@@ -19,7 +19,7 @@ package chaos
 import (
 	"context"
 	"fmt"
-	"github.com/atomix/chaos-operator/pkg/apis/chaos/v1alpha1"
+	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"github.com/go-logr/logr"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

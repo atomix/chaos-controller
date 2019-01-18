@@ -1,7 +1,7 @@
 package apis
 
 import (
-	"github.com/atomix/chaos-operator/pkg/apis/chaos/v1alpha1"
+	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 )
 
 func init() {

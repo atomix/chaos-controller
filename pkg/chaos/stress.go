@@ -18,7 +18,7 @@ package chaos
 
 import (
 	"fmt"
-	"github.com/atomix/chaos-operator/pkg/apis/chaos/v1alpha1"
+	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"k8s.io/api/core/v1"
 	"math/rand"
 	"strings"

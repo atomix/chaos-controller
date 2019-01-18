@@ -2,8 +2,8 @@ package controller
 
 import (
 	"context"
-	"github.com/atomix/chaos-operator/pkg/apis/chaos/v1alpha1"
-	"github.com/atomix/chaos-operator/pkg/chaos"
+	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
+	"github.com/atomix/chaos-controller/pkg/chaos"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"

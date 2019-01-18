@@ -7,8 +7,8 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/atomix/chaos-operator/pkg/apis"
-	"github.com/atomix/chaos-operator/pkg/controller"
+	"github.com/atomix/chaos-controller/pkg/apis"
+	"github.com/atomix/chaos-controller/pkg/controller"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	"github.com/operator-framework/operator-sdk/pkg/leader"
 	"github.com/operator-framework/operator-sdk/pkg/ready"
