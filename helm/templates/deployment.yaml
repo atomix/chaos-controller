@@ -24,9 +24,6 @@ spec:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
-          ports:
-          - containerPort: 60000
-            name: metrics
           command:
           - chaos-controller
           readinessProbe:

@@ -21,9 +21,6 @@ spec:
         - name: chaos-worker
           # Replace this with the built image name
           image: atomix/chaos-worker
-          ports:
-          - containerPort: 60000
-            name: metrics
           command:
           - chaos-worker
           imagePullPolicy: Always

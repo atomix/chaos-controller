@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"github.com/atomix/chaos-controller/pkg/chaos"
+	"github.com/operator-framework/operator-sdk/pkg/ready"
 	"os"
 	"runtime"
 
@@ -48,6 +49,14 @@ func main() {
 		log.Error(err, "")
 		os.Exit(1)
 	}
+
+	r := ready.NewFileReady()
+	err = r.Set()
+	if err != nil {
+		log.Error(err, "")
+		os.Exit(1)
+	}
+	defer r.Unset()
 
 	// Create a new Cmd to provide shared dependencies and start components
 	mgr, err := manager.New(cfg, manager.Options{Namespace: namespace})

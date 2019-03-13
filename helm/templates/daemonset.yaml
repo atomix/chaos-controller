@@ -23,11 +23,8 @@ spec:
         - name: {{ .Chart.Name }}-worker
           image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
           imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
-          ports:
-          - containerPort: 60000
-            name: metrics
           command:
-          - chaos-controller
+          - chaos-worker
           readinessProbe:
             exec:
               command:

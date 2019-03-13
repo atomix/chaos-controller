@@ -17,9 +17,6 @@ spec:
         - name: chaos-controller
           # Replace this with the built image name
           image: atomix/chaos-controller
-          ports:
-          - containerPort: 60000
-            name: metrics
           command:
           - chaos-controller
           imagePullPolicy: Always
