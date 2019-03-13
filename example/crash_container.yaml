@@ -1,7 +1,7 @@
 apiVersion: chaos.atomix.io/v1alpha1
 kind: ChaosMonkey
 metadata:
-  name: crash-monkey
+  name: crash-container
 spec:
   rateSeconds: 60
   jitter: .5

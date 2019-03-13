@@ -1,0 +1,20 @@
+apiVersion: chaos.atomix.io/v1alpha1
+kind: ChaosMonkey
+metadata:
+  name: stress-network
+spec:
+  rateSeconds: 900
+  periodSeconds: 300
+  jitter: .5
+  selector:
+    matchExpressions:
+      - key: group
+        operator: In
+        values:
+          - raft
+          - data
+  stress:
+    stressStrategy:
+      type: All
+    network:
+      latencyMilliseconds: 500

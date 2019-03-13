@@ -1,7 +1,7 @@
 apiVersion: chaos.atomix.io/v1alpha1
 kind: ChaosMonkey
 metadata:
-  name: stress-monkey
+  name: stress-memory
 spec:
   rateSeconds: 900
   periodSeconds: 300
@@ -15,6 +15,6 @@ spec:
           - data
   stress:
     stressStrategy:
-      type: All
-    network:
-      latencyMilliseconds: 500
+      type: Random
+    memory:
+      workers: 1

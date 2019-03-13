@@ -1,0 +1,15 @@
+apiVersion: chaos.atomix.io/v1alpha1
+kind: ChaosMonkey
+metadata:
+  name: partition-isolate
+spec:
+  rateSeconds: 600
+  periodSeconds: 60
+  jitter: .5
+  selector:
+    matchLabels:
+      app: atomix
+      cluster: example-atomixcluster
+  partition:
+    partitionStrategy:
+      type: Isolate

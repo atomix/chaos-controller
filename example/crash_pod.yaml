@@ -1,0 +1,15 @@
+apiVersion: chaos.atomix.io/v1alpha1
+kind: ChaosMonkey
+metadata:
+  name: crash-pod
+spec:
+  rateSeconds: 60
+  jitter: .5
+  selector:
+    matchPods:
+      - raft-group-0
+      - raft-group-1
+      - raft-group-2
+  crash:
+    crashStrategy:
+      type: Pod
