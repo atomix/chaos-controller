@@ -296,7 +296,10 @@ func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) 
 	}
 
 	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
-		Filters: filters.NewArgs(filters.Arg("label=io.kubernetes.pod.name", stress.Spec.PodName)),
+		Filters: filters.NewArgs(
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.name", stress.Spec.PodName)),
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.namespace", stress.Namespace)),
+		),
 	})
 	if err != nil {
 		return err
@@ -399,8 +402,8 @@ func (r *ReconcileStress) cancelContainers(name types.NamespacedName) error {
 
 	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
 		Filters: filters.NewArgs(
-			filters.Arg("label=io.atomix.chaos.stress.name", name.Name),
-			filters.Arg("label=io.atomix.chaos.stress.namespace", name.Namespace),
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.atomix.chaos.stress.name", name.Name)),
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.atomix.chaos.stress.namespace", name.Namespace)),
 		),
 	})
 	if err != nil {
@@ -427,8 +430,8 @@ func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, erro
 
 	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
 		Filters: filters.NewArgs(
-			filters.Arg("label=io.kubernetes.pod.name", stress.Spec.PodName),
-			filters.Arg("label=io.kubernetes.pod.namespace", stress.Namespace),
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.name", stress.Spec.PodName)),
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.namespace", stress.Namespace)),
 		),
 	})
 	if err != nil {

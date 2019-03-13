@@ -316,14 +316,17 @@ func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartiti
 	return r.setRunning(partition)
 }
 
-func (r *ReconcileNetworkPartition) getInterfaces(stress *v1alpha1.NetworkPartition) ([]string, error) {
+func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPartition) ([]string, error) {
 	cli, err := docker.NewEnvClient()
 	if err != nil {
 		return nil, err
 	}
 
 	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
-		Filters: filters.NewArgs(filters.Arg("label=io.kubernetes.pod.name", stress.Spec.PodName)),
+		Filters: filters.NewArgs(
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.name", partition.Spec.PodName)),
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.namespace", partition.Namespace)),
+		),
 	})
 	if err != nil {
 		return nil, err
