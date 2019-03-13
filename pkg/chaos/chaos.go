@@ -33,8 +33,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sync"
 	"time"
 )
@@ -42,6 +45,43 @@ import (
 var log = logf.Log.WithName("chaos_controller")
 
 var _ manager.Runnable = &ChaosController{}
+
+// Add creates a new ChaosMonkey Controller and adds it to the Manager. The Manager will set fields on the Controller
+// and Start it when the Manager is Started.
+func AddControllers(mgr manager.Manager) error {
+	err := addCrashController(mgr)
+	if err != nil {
+		return err
+	}
+
+	err = addPartitionController(mgr)
+	if err != nil {
+		return err
+	}
+
+	err = addStressController(mgr)
+	if err != nil {
+		return err
+	}
+	r := &ReconcileCrash{
+		client: mgr.GetClient(),
+		scheme: mgr.GetScheme(),
+		config: mgr.GetConfig(),
+	}
+
+	c, err := controller.New("crash", mgr, controller.Options{Reconciler: r})
+	if err != nil {
+		return err
+	}
+
+	// Watch for changes to Crash resource
+	err = c.Watch(&source.Kind{Type: &v1alpha1.Crash{}}, &handler.EnqueueRequestForObject{})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
 
 // New returns a new ChaosController for managing chaos monkeys running in the cluster.
 func New(client runtimeclient.Client, scheme *runtime.Scheme, config *rest.Config) *ChaosController {
@@ -130,44 +170,19 @@ func (c *ChaosController) newMonkey(monkey *v1alpha1.ChaosMonkey) *MonkeyControl
 func (c *ChaosController) newHandler(monkey *v1alpha1.ChaosMonkey) MonkeyHandler {
 	ctx := c.context.new(c.context.log.WithValues("monkey", monkey.Name))
 	if monkey.Spec.Crash != nil {
-		switch monkey.Spec.Crash.CrashStrategy.Type {
-		case v1alpha1.CrashContainer:
-			return &CrashContainerMonkey{&CrashMonkey{
-				context: ctx,
-				config:  monkey.Spec.Crash,
-			}}
-		case v1alpha1.CrashPod:
-			return &CrashPodMonkey{&CrashMonkey{
-				context: ctx,
-				config:  monkey.Spec.Crash,
-			}}
-		default:
-			return &NilMonkey{}
+		return &CrashMonkey{
+			context: ctx,
+			monkey:  monkey,
 		}
 	} else if monkey.Spec.Partition != nil {
-		switch monkey.Spec.Partition.PartitionStrategy.Type {
-		case v1alpha1.PartitionIsolate:
-			return &PartitionIsolateMonkey{&PartitionMonkey{
-				context: ctx,
-				config:  monkey.Spec.Partition,
-			}}
-		case v1alpha1.PartitionHalves:
-			return &PartitionHalvesMonkey{&PartitionMonkey{
-				context: ctx,
-				config:  monkey.Spec.Partition,
-			}}
-		case v1alpha1.PartitionBridge:
-			return &PartitionBridgeMonkey{&PartitionMonkey{
-				context: ctx,
-				config:  monkey.Spec.Partition,
-			}}
-		default:
-			return &NilMonkey{}
+		return &PartitionMonkey{
+			context: ctx,
+			monkey:  monkey,
 		}
 	} else if monkey.Spec.Stress != nil {
 		return &StressMonkey{
 			context: ctx,
-			config:  monkey.Spec.Stress,
+			monkey:  monkey,
 		}
 	} else {
 		return &NilMonkey{}
@@ -279,15 +294,18 @@ func (m *MonkeyController) Start() error {
 			defer wg.Wait()
 
 			stop := make(chan struct{})
+			pods, err := m.selector()
 			wg.StartWithChannel(stop, func(stop <-chan struct{}) {
-				pods, err := m.selector()
 				if err != nil {
 					m.logger.Error(err, "Failed to select pods")
 				} else if len(pods) == 0 {
 					m.logger.Info("No pods selected")
 				} else {
 					m.setRunning(true)
-					m.handler.run(pods, stop)
+					err = m.handler.create(pods)
+					if err != nil {
+						m.logger.Error(err, "Failed to create workers")
+					}
 				}
 			})
 
@@ -296,11 +314,19 @@ func (m *MonkeyController) Start() error {
 				select {
 				case <-m.stopped:
 					m.logger.Info("Monkey stopped")
+					err = m.handler.delete(pods)
+					if err != nil {
+						m.logger.Error(err, "Failed to stop workers")
+					}
 					m.setRunning(false)
 					stop <- struct{}{}
 					return
 				case <-t.C:
 					m.logger.Info("Monkey period expired")
+					err = m.handler.delete(pods)
+					if err != nil {
+						m.logger.Error(err, "Failed to stop workers")
+					}
 					m.setRunning(false)
 					stop <- struct{}{}
 					return
@@ -331,13 +357,24 @@ func (m *MonkeyController) setRunning(running bool) {
 
 // MonkeyHandler provides a runnable interface for chaos monkey implementations.
 type MonkeyHandler interface {
-	run([]v1.Pod, <-chan struct{})
+	create([]v1.Pod) error
+	delete([]v1.Pod) error
 }
 
 // NilMonkey is an invalid chaos monkey handler.
 type NilMonkey struct{}
 
-// run implements the MonkeyHandler interface
-func (m *NilMonkey) run(pods []v1.Pod, stop <-chan struct{}) {
-	<-stop
+func (m *NilMonkey) create(pods []v1.Pod) error {
+	return nil
+}
+
+func (m *NilMonkey) delete(pods []v1.Pod) error {
+	return nil
+}
+
+func getLabels(monkey *v1alpha1.ChaosMonkey) map[string]string {
+	return map[string]string{
+		"app": "chaos-controller",
+		"monkey": monkey.Name,
+	}
 }

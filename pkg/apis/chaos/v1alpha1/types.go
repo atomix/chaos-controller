@@ -144,6 +144,15 @@ type ChaosMonkey struct {
 	Status ChaosMonkeyStatus `json:"status,omitempty"`
 }
 
+type Phase string
+
+const (
+	PhaseStarted  Phase = "started"
+	PhaseRunning  Phase = "running"
+	PhaseStopped  Phase = "stopped"
+	PhaseComplete Phase = "complete"
+)
+
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // ChaosMonkeyList contains a list of ChaosMonkey
@@ -153,6 +162,107 @@ type ChaosMonkeyList struct {
 	Items           []ChaosMonkey `json:"items"`
 }
 
+// CrashStatus defines the observed state of ChaosMonkey
+type CrashStatus struct {
+	Phase Phase `json:"phase,omitempty"`
+}
+
+// CrashSpec defines the spec for a crash
+type CrashSpec struct {
+	PodName       string        `json:"podName,omitempty"`
+	CrashStrategy CrashStrategy `json:"crashStrategy,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// Crash is the Schema for the chaosmonkeys API
+// +k8s:openapi-gen=true
+type Crash struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   CrashSpec   `json:"spec,omitempty"`
+	Status CrashStatus `json:"status,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// CrashList contains a list of ChaosMonkey
+type CrashList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Crash `json:"items"`
+}
+
+// NetworkPartitionStatus defines the observed state of ChaosMonkey
+type NetworkPartitionStatus struct {
+	Phase Phase `json:"phase,omitempty"`
+}
+
+// NetworkPartitionSpec defines the spec for a NetworkPartition resource
+type NetworkPartitionSpec struct {
+	PodName    string `json:"podName,omitempty"`
+	SourceName string `json:"sourceName,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// NetworkPartition is the Schema for the chaosmonkeys API
+// +k8s:openapi-gen=true
+type NetworkPartition struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   NetworkPartitionSpec   `json:"spec,omitempty"`
+	Status NetworkPartitionStatus `json:"status,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// NetworkPartitionList contains a list of ChaosMonkey
+type NetworkPartitionList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []NetworkPartition `json:"items"`
+}
+
+// StressSpec defines the spec for a Stress resource
+type StressSpec struct {
+	PodName string         `json:"podName,omitempty"`
+	IO      *StressIO      `json:"io,omitempty"`
+	CPU     *StressCPU     `json:"cpu,omitempty"`
+	Memory  *StressMemory  `json:"memory,omitempty"`
+	HDD     *StressHDD     `json:"hdd,omitempty"`
+	Network *StressNetwork `json:"network,omitempty"`
+}
+
+// NetworkPartitionStatus defines the observed state of ChaosMonkey
+type StressStatus struct {
+	Phase Phase `json:"phase,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// Stress is the Schema for the chaosmonkeys API
+// +k8s:openapi-gen=true
+type Stress struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   StressSpec   `json:"spec,omitempty"`
+	Status StressStatus `json:"status,omitempty"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// StressList contains a list of ChaosMonkey
+type StressList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Stress `json:"items"`
+}
+
 func init() {
 	SchemeBuilder.Register(&ChaosMonkey{}, &ChaosMonkeyList{})
+	SchemeBuilder.Register(&Crash{}, &CrashList{})
 }

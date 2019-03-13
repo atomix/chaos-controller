@@ -1,6 +1,8 @@
-FROM alpine:3.8
+FROM docker
 
 RUN apk upgrade --update --no-cache
+
+RUN apk install iptables
 
 USER nobody
 

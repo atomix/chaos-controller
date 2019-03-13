@@ -10,6 +10,40 @@
   version = "v0.34.0"
 
 [[projects]]
+  digest = "1:2a679c98f52bf4e37af8fc1ea95df8bc2465ea452a3bb9deb75d994f6ef5599c"
+  name = "docker.io/go-docker"
+  packages = [
+    ".",
+    "api",
+    "api/types",
+    "api/types/blkiodev",
+    "api/types/container",
+    "api/types/events",
+    "api/types/filters",
+    "api/types/image",
+    "api/types/mount",
+    "api/types/network",
+    "api/types/registry",
+    "api/types/strslice",
+    "api/types/swarm",
+    "api/types/swarm/runtime",
+    "api/types/time",
+    "api/types/versions",
+    "api/types/volume",
+  ]
+  pruneopts = "NT"
+  revision = "b3f5b5de7bbce0acc6a7fc0a4c2b88db678e262e"
+  version = "v1.0.0"
+
+[[projects]]
+  digest = "1:a02c9295ee6584bf7d7b420519b06f91a7c00ac1dca8de84f9597878545080a7"
+  name = "github.com/Microsoft/go-winio"
+  packages = ["."]
+  pruneopts = "NT"
+  revision = "1a8911d1ed007260465c3bfbbc785ac6915a0bb8"
+  version = "v0.4.12"
+
+[[projects]]
   digest = "1:d8ebbd207f3d3266d4423ce4860c9f3794956306ded6c7ba312ecc69cdfbf04c"
   name = "github.com/PuerkitoBio/purell"
   packages = ["."]
@@ -34,12 +68,50 @@
   revision = "3a771d992973f24aa725d07868b467d1ddfceafb"
 
 [[projects]]
+  digest = "1:16ab2e8beb66b5027b430e17220575d0e41339819e02586283297924eeb60bd0"
+  name = "github.com/coreos/etcd-operator"
+  packages = ["pkg/chaos"]
+  pruneopts = "NT"
+  revision = "c8a1c646f3a944a8173653c77dfcff38904ba2ff"
+  version = "v0.9.4"
+
+[[projects]]
   digest = "1:4b8b5811da6970495e04d1f4e98bb89518cc3cfc3b3f456bdb876ed7b6c74049"
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
   pruneopts = "NT"
   revision = "8991bc29aa16c548c550c7ff78260e27b9ab7c73"
   version = "v1.1.1"
+
+[[projects]]
+  digest = "1:971de71a8f57576cf3a8ff5216e97fb01d152a99c3ff5a0fecc7ed393d26bf34"
+  name = "github.com/docker/distribution"
+  packages = [
+    "digestset",
+    "reference",
+  ]
+  pruneopts = "NT"
+  revision = "edc3ab29cdff8694dd6feb85cfeb4b5f1b38ed9c"
+
+[[projects]]
+  digest = "1:4827c1ada938f47a06f4290e978793875b9aa865a06338a6a78272488f620b7e"
+  name = "github.com/docker/go-connections"
+  packages = [
+    "nat",
+    "sockets",
+    "tlsconfig",
+  ]
+  pruneopts = "NT"
+  revision = "3ede32e2033de7505e6500d6c868c2b9ed9f169d"
+  version = "v0.3.0"
+
+[[projects]]
+  digest = "1:4340101f42556a9cb2f7a360a0e95a019bfef6247d92e6c4c46f2433cf86a482"
+  name = "github.com/docker/go-units"
+  packages = ["."]
+  pruneopts = "NT"
+  revision = "47565b4f722fb6ceae66b95f853feed578a4a51c"
+  version = "v0.3.3"
 
 [[projects]]
   branch = "master"
@@ -120,15 +192,15 @@
   version = "v0.18.0"
 
 [[projects]]
-  digest = "1:932970e69f16e127aa0653b8263ae588cd127fa53273e19ba44332902c9826f2"
+  digest = "1:c1a52618ef37989c90da821e4a6e9a5979b3db93032ae824f9b249c207c2d0ae"
   name = "github.com/gogo/protobuf"
   packages = [
     "proto",
     "sortkeys",
   ]
   pruneopts = "NT"
-  revision = "4cbf7e384e768b4e01799441fdf2a706a5635ae7"
-  version = "v1.2.0"
+  revision = "100ba4e885062801d56799d78530b73b178a78f3"
+  version = "v0.4"
 
 [[projects]]
   branch = "master"
@@ -279,6 +351,25 @@
   version = "1.0.1"
 
 [[projects]]
+  digest = "1:e0cc8395ea893c898ff5eb0850f4d9851c1f57c78c232304a026379a47a552d0"
+  name = "github.com/opencontainers/go-digest"
+  packages = ["."]
+  pruneopts = "NT"
+  revision = "279bed98673dd5bef374d3b6e4b09e2af76183bf"
+  version = "v1.0.0-rc1"
+
+[[projects]]
+  digest = "1:6a42064e69dda8ba8b3687f837719fb8e241986c54ad4515e55ea9ec11bf5242"
+  name = "github.com/opencontainers/image-spec"
+  packages = [
+    "specs-go",
+    "specs-go/v1",
+  ]
+  pruneopts = "NT"
+  revision = "d60099175f88c47cd379c4738d158884749ed235"
+  version = "v1.0.1"
+
+[[projects]]
   digest = "1:25c007d9329a7240b7011d3f733dbfb5ec797af09c21a89a159439b0497e8e21"
   name = "github.com/operator-framework/operator-sdk"
   packages = [
@@ -314,6 +405,14 @@
   pruneopts = "NT"
   revision = "5f041e8faa004a95c88a202771f4cc3e991971e6"
   version = "v2.0.1"
+
+[[projects]]
+  digest = "1:14715f705ff5dfe0ffd6571d7d201dd8e921030f8070321a79380d8ca4ec1a24"
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  pruneopts = "NT"
+  revision = "ba968bfe8b2f7e042a574c888954fccecfa385b4"
+  version = "v0.8.1"
 
 [[projects]]
   digest = "1:ec2a29e3bd141038ae5c3d3a4f57db0c341fcc1d98055a607aedd683aed124ee"
@@ -359,6 +458,14 @@
   ]
   pruneopts = "NT"
   revision = "b1a0a9a36d7453ba0f62578b99712f3a6c5f82d1"
+
+[[projects]]
+  digest = "1:87d2486e70b24aefe104d9ce5cdb0928385d86f5763ec938cc4d4c03a8a7724d"
+  name = "github.com/sirupsen/logrus"
+  packages = ["."]
+  pruneopts = "NT"
+  revision = "d682213848ed68c0a260ca37d6dd5ace8423f5ba"
+  version = "v1.0.4"
 
 [[projects]]
   digest = "1:9d8420bbf131d1618bde6530af37c3799340d3762cc47210c1d9532a4c3a2779"
@@ -418,6 +525,8 @@
     "http2",
     "http2/hpack",
     "idna",
+    "internal/socks",
+    "proxy",
   ]
   pruneopts = "NT"
   revision = "915654e7eabcea33ae277abbecf52f0d8b7a9fdc"
@@ -819,6 +928,8 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "docker.io/go-docker",
+    "github.com/coreos/etcd-operator/pkg/chaos",
     "github.com/go-logr/logr",
     "github.com/operator-framework/operator-sdk/pkg/k8sutil",
     "github.com/operator-framework/operator-sdk/pkg/leader",

@@ -17,141 +17,406 @@
 package chaos
 
 import (
+	"bytes"
+	"context"
+	"docker.io/go-docker"
+	dockertypes "docker.io/go-docker/api/types"
+	"docker.io/go-docker/api/types/container"
+	"docker.io/go-docker/api/types/filters"
+	"docker.io/go-docker/api/types/network"
 	"fmt"
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"math/rand"
+	"os"
+	"os/exec"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"strings"
 )
 
 type StressMonkey struct {
-	context  Context
-	config   *v1alpha1.StressMonkey
+	context Context
+	monkey  *v1alpha1.ChaosMonkey
 }
 
-func (m *StressMonkey) run(pods []v1.Pod, stop <-chan struct{}) {
-	switch m.config.StressStrategy.Type {
-	case v1alpha1.StressRandom:
-		m.stressRandom(pods, stop)
-	case v1alpha1.StressAll:
-		m.stressAll(pods, stop)
+func (m *StressMonkey) create(pods []v1.Pod) error {
+	var selected []v1.Pod
+	if m.monkey.Spec.Stress.StressStrategy.Type == v1alpha1.StressRandom {
+		selected = []v1.Pod{pods[rand.Intn(len(pods))]}
+	} else {
+		selected = pods
 	}
+
+	for _, pod := range selected {
+		stress := &v1alpha1.Stress{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pod.Name,
+				Namespace: pod.Namespace,
+				Labels: getLabels(m.monkey),
+			},
+			Spec: v1alpha1.StressSpec{
+				PodName: pod.Name,
+				IO:      m.monkey.Spec.Stress.IO,
+				CPU:     m.monkey.Spec.Stress.CPU,
+				Memory:  m.monkey.Spec.Stress.Memory,
+				HDD:     m.monkey.Spec.Stress.HDD,
+				Network: m.monkey.Spec.Stress.Network,
+			},
+			Status: v1alpha1.StressStatus{
+				Phase: v1alpha1.PhaseStarted,
+			},
+		}
+		if err := controllerutil.SetControllerReference(m.monkey, stress, m.context.scheme); err != nil {
+			return err
+		}
+		if err := m.context.client.Create(context.TODO(), stress); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (m *StressMonkey) stressRandom(pods []v1.Pod, stop <-chan struct{}) {
-	// Choose a random node to kill.
-	pod := pods[rand.Intn(len(pods))]
-
-	m.stressPod(pod)
-
-	<-stop
-
-	m.destressPod(pod)
-}
-
-func (m *StressMonkey) stressAll(pods []v1.Pod, stop <-chan struct{}) {
+func (m *StressMonkey) delete(pods []v1.Pod) error {
 	for _, pod := range pods {
-		m.stressPod(pod)
-	}
-
-	<-stop
-
-	for _, pod := range pods {
-		m.destressPod(pod)
-	}
-}
-
-func (m *StressMonkey) stressPod(pod v1.Pod) {
-	if m.config.IO != nil || m.config.CPU != nil || m.config.Memory != nil || m.config.HDD != nil {
-		// Build a 'stress' command and arguments.
-		command := []string{"bash", "-c"}
-
-		stress := []string{"stress"}
-		if m.config.IO != nil {
-			stress = append(stress, "--io")
-			stress = append(stress, fmt.Sprintf("%d", *m.config.IO.Workers))
-		}
-		if m.config.CPU != nil {
-			stress = append(stress, "--cpu")
-			stress = append(stress, fmt.Sprintf("%d", *m.config.CPU.Workers))
-		}
-		if m.config.Memory != nil {
-			stress = append(stress, "--vm")
-			stress = append(stress, fmt.Sprintf("%d", *m.config.Memory.Workers))
-		}
-		if m.config.HDD != nil {
-			stress = append(stress, "--hdd")
-			stress = append(stress, fmt.Sprintf("%d", *m.config.HDD.Workers))
-		}
-
-		stress = append(stress, ">")
-		stress = append(stress, "/dev/null")
-		stress = append(stress, "2>")
-		stress = append(stress, "/dev/null")
-		stress = append(stress, "&")
-
-		command = append(command, strings.Join(stress, " "))
-
-		container := pod.Spec.Containers[0]
-		log.Info("Stressing container", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
-
-		// Execute the command inside the Atomix container.
-		_, err := m.context.exec(pod, &container, command...)
+		stress := &v1alpha1.Stress{}
+		err := m.context.client.Get(context.TODO(), types.NamespacedName{pod.Namespace, pod.Name}, stress)
 		if err != nil {
-			m.context.log.Error(err, "Failed to stress container", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
+			if !errors.IsNotFound(err) {
+				return err
+			}
+			return nil
+		}
+
+		stress.Status.Phase = v1alpha1.PhaseStopped
+		err = m.context.client.Status().Update(context.TODO(), stress)
+		if err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
-	// If network stress is configured, build a 'tc' command to inject latency into the network.
-	if m.config.Network != nil {
-		command := []string{"bash", "-c", "tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay"}
-		command = append(command, fmt.Sprintf("%dms", *m.config.Network.LatencyMilliseconds))
-		if m.config.Network.Jitter != nil {
-			command = append(command, fmt.Sprintf("%dms", int(*m.config.Network.Jitter*float64(*m.config.Network.LatencyMilliseconds))))
-			if m.config.Network.Correlation != nil {
-				command = append(command, fmt.Sprintf("%d%%", int(*m.config.Network.Correlation*100)))
+// addStressController adds a Stress resource controller to the given manager
+func addStressController(mgr manager.Manager) error {
+	r := &ReconcileNetworkPartition{
+		client: mgr.GetClient(),
+		scheme: mgr.GetScheme(),
+		config: mgr.GetConfig(),
+	}
+
+	c, err := controller.New("crash", mgr, controller.Options{Reconciler: r})
+	if err != nil {
+		return err
+	}
+
+	// Watch for changes to Crash resource
+	err = c.Watch(&source.Kind{Type: &v1alpha1.Stress{}}, &handler.EnqueueRequestForObject{})
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+var _ reconcile.Reconciler = &ReconcileStress{}
+
+// ReconcileNetworkPartition reconciles a Crash object
+type ReconcileStress struct {
+	// This client, initialized using mgr.Client() above, is a split client
+	// that reads objects from the cache and writes to the apiserver
+	client client.Client
+	scheme *runtime.Scheme
+	config *rest.Config
+}
+
+// Reconcile reads that state of the cluster for a Stress object and makes changes based on the state read
+// and what is in the ChaosMonkey.Spec
+func (r *ReconcileStress) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
+	reqLogger.Info("Reconciling ChaosMonkey")
+
+	// Fetch the Stress instance
+	instance := &v1alpha1.Stress{}
+	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Request object not found, could have been deleted after reconcile request.
+			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
+			// Return and don't requeue
+			return reconcile.Result{}, nil
+		}
+		// Error reading the object - requeue the request.
+		return reconcile.Result{}, err
+	}
+
+	if instance.Status.Phase == v1alpha1.PhaseStarted {
+		err = r.stress(instance)
+	} else if instance.Status.Phase == v1alpha1.PhaseStopped {
+		err = r.stop(instance)
+	}
+	return reconcile.Result{}, err
+}
+
+func (r *ReconcileStress) setRunning(stress *v1alpha1.Stress) error {
+	stress.Status.Phase = v1alpha1.PhaseRunning
+	return r.client.Status().Update(context.TODO(), stress)
+}
+
+func (r *ReconcileStress) setComplete(stress *v1alpha1.Stress) error {
+	stress.Status.Phase = v1alpha1.PhaseComplete
+	return r.client.Status().Update(context.TODO(), stress)
+}
+
+func (r *ReconcileStress) getLocalPod(stress *v1alpha1.Stress) (*v1.Pod, error) {
+	// Get the pod to determine whether the pod is running on this node
+	pod := &v1.Pod{}
+	err := r.client.Get(context.TODO(), types.NamespacedName{stress.Namespace, stress.Spec.PodName}, pod)
+	if err != nil {
+		return nil, err
+	}
+
+	// Compare the pod's node name to the local node name
+	nodeName := pod.Spec.NodeName
+	if nodeName != os.Getenv("NODE_NAME") {
+		return nil, nil
+	}
+	return pod, nil
+}
+
+func (r *ReconcileStress) stress(stress *v1alpha1.Stress) error {
+	if stress.Spec.IO != nil {
+		if err := r.stressIo(stress); err != nil {
+			return err
+		}
+	}
+	if stress.Spec.CPU != nil {
+		if err := r.stressCpu(stress); err != nil {
+			return err
+		}
+	}
+	if stress.Spec.Memory != nil {
+		if err := r.stressMemory(stress); err != nil {
+			return err
+		}
+	}
+	if stress.Spec.HDD != nil {
+		if err := r.stressHdd(stress); err != nil {
+			return err
+		}
+	}
+	if stress.Spec.Network != nil {
+		if err := r.stressNetwork(stress); err != nil {
+			return err
+		}
+	}
+	return r.setRunning(stress)
+}
+
+func (r *ReconcileStress) stressIo(stress *v1alpha1.Stress) error {
+	args := []string{"--io", fmt.Sprintf("%d", *stress.Spec.IO.Workers)}
+	return r.execStress(stress, args)
+}
+
+func (r *ReconcileStress) stressCpu(stress *v1alpha1.Stress) error {
+	args := []string{"--cpu", fmt.Sprintf("%d", *stress.Spec.CPU.Workers)}
+	return r.execStress(stress, args)
+}
+
+func (r *ReconcileStress) stressMemory(stress *v1alpha1.Stress) error {
+	args := []string{"--vm", fmt.Sprintf("%d", *stress.Spec.Memory.Workers)}
+	return r.execStress(stress, args)
+}
+
+func (r *ReconcileStress) stressHdd(stress *v1alpha1.Stress) error {
+	args := []string{"--hdd", fmt.Sprintf("%d", *stress.Spec.HDD.Workers)}
+	return r.execStress(stress, args)
+}
+
+func (r *ReconcileStress) stressNetwork(stress *v1alpha1.Stress) error {
+	ifaces, err := r.getInterfaces(stress)
+	if err != nil {
+		return err
+	}
+
+	for _, iface := range ifaces {
+		var args []string
+		if stress.Spec.Network != nil {
+			args := []string{"tc", "qdisc", "add", "dev", iface, "root", "netem", "delay"}
+			args = append(args, fmt.Sprintf("%dms", *stress.Spec.Network.LatencyMilliseconds))
+			if stress.Spec.Network.Jitter != nil {
+				args = append(args, fmt.Sprintf("%dms", int(*stress.Spec.Network.Jitter*float64(*stress.Spec.Network.LatencyMilliseconds))))
+				if stress.Spec.Network.Correlation != nil {
+					args = append(args, fmt.Sprintf("%d%%", int(*stress.Spec.Network.Correlation*100)))
+				}
+			}
+			if stress.Spec.Network.Distribution != nil {
+				args = append(args, "distribution")
+				args = append(args, string(*stress.Spec.Network.Distribution))
 			}
 		}
-		if m.config.Network.Distribution != nil {
-			command = append(command, "distribution")
-			command = append(command, string(*m.config.Network.Distribution))
-		}
 
-		container := pod.Spec.Containers[0]
-		log.Info("Slowing container network", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
-
-		// Execute the command inside the Atomix container.
-		_, err := m.context.exec(pod, &container, command...)
+		_, err := r.exec("bash", "-c", strings.Join(args, " "))
 		if err != nil {
-			m.context.log.Error(err, "Failed to slow container network", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
+			return err
 		}
 	}
+	return nil
 }
 
-func (m *StressMonkey) destressPod(pod v1.Pod) {
-	// If the 'stress' utility options are enabled, kill the 'stress' process.
-	if m.config.IO != nil || m.config.CPU != nil || m.config.Memory != nil || m.config.HDD != nil {
-		command := []string{"bash", "-c", "pkill -f stress"}
+func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) error {
+	cli, err := docker.NewEnvClient()
+	if err != nil {
+		return err
+	}
 
-		container := pod.Spec.Containers[0]
-		log.Info("Destressing container", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
+	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
+		Filters: filters.NewArgs(filters.Arg("label=io.kubernetes.pod.name", stress.Spec.PodName)),
+	})
+	if err != nil {
+		return err
+	}
 
-		_, err := m.context.exec(pod, &container, command...)
-		if err != nil {
-			m.context.log.Error(err, "Failed to destress container", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
+	var pauseContainer *dockertypes.Container
+	for _, c := range containers {
+		if strings.Contains(c.Image, "k8s.gcr.io/pause") {
+			pauseContainer = &c
+			break
 		}
 	}
 
-	// If the network stress options are enabled, delete the 'tc' rule injecting latency.
-	if m.config.Network != nil {
-		command := []string{"bash", "-c", "tc qdisc del dev eth0 root"}
+	if pauseContainer == nil {
+		return nil
+	}
 
-		container := pod.Spec.Containers[0]
-		log.Info("Restoring container network", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
+	config := &container.Config{
+		Image: "progrium/stress:latest",
+		Cmd: command,
+	}
 
-		_, err := m.context.exec(pod, &container, command...)
-		if err != nil {
-			m.context.log.Error(err, "Failed to restore container network", "pod", pod.Name, "namespace", pod.Namespace, "container", container.Name)
+	hostConfig := &container.HostConfig{
+		NetworkMode: "host",
+		Privileged: true,
+		PidMode: container.PidMode(fmt.Sprintf("container:%s", containers[0].ID)),
+	}
+
+	networkingConfig := &network.NetworkingConfig{}
+
+	_, err = cli.ContainerCreate(context.Background(), config, hostConfig, networkingConfig, stress.Name)
+	return err
+}
+
+func (r *ReconcileStress) stop(stress *v1alpha1.Stress) error {
+	if err := r.stopContainers(stress); err != nil {
+		return err
+	}
+	if err := r.stopTrafficControl(stress); err != nil {
+		return err
+	}
+	return r.setComplete(stress)
+}
+
+func (r *ReconcileStress) stopContainers(stress *v1alpha1.Stress) error {
+	cli, err := docker.NewEnvClient()
+	if err != nil {
+		return err
+	}
+
+	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
+		Filters: filters.NewArgs(filters.Arg("label=io.atomix.chaos.stress.name", stress.Name)),
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(containers) == 0 {
+		return nil
+	}
+
+	for _, c := range containers {
+		if err = cli.ContainerStop(context.Background(), c.ID, nil); err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+func (r *ReconcileStress) stopTrafficControl(stress *v1alpha1.Stress) error {
+	ifaces, err := r.getInterfaces(stress)
+	if err != nil {
+		return err
+	}
+
+	for _, iface := range ifaces {
+		var args []string
+		if stress.Spec.Network != nil {
+			args := []string{"tc", "qdisc", "del", "dev", iface}
+			args = append(args, fmt.Sprintf("%dms", *stress.Spec.Network.LatencyMilliseconds))
+			if stress.Spec.Network.Jitter != nil {
+				args = append(args, fmt.Sprintf("%dms", int(*stress.Spec.Network.Jitter*float64(*stress.Spec.Network.LatencyMilliseconds))))
+				if stress.Spec.Network.Correlation != nil {
+					args = append(args, fmt.Sprintf("%d%%", int(*stress.Spec.Network.Correlation*100)))
+				}
+			}
+			if stress.Spec.Network.Distribution != nil {
+				args = append(args, "distribution")
+				args = append(args, string(*stress.Spec.Network.Distribution))
+			}
+		}
+
+		_, err := r.exec("bash", "-c", strings.Join(args, " "))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, error) {
+	cli, err := docker.NewEnvClient()
+	if err != nil {
+		return nil, err
+	}
+
+	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
+		Filters: filters.NewArgs(filters.Arg("label=io.kubernetes.pod.name", stress.Spec.PodName)),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var ifaces []string
+	for _, c := range containers {
+		ifindex, err := r.exec("bash", "-c", "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2")
+		if err != nil {
+			return nil, err
+		}
+
+		iface, err := r.exec("bash", "-c", "ip addr | grep \""+ifindex+":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'")
+		if err != nil {
+			return nil, err
+		}
+		ifaces = append(ifaces, iface)
+	}
+	return ifaces, nil
+}
+
+func (r *ReconcileStress) exec(command string, args ...string) (string, error) {
+	stdout := bytes.Buffer{}
+	cmd := exec.Command(command, args...)
+	cmd.Stdout = &stdout
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	return stdout.String(), nil
 }

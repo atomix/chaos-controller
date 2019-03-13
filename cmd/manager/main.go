@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/atomix/chaos-controller/pkg/chaos"
 	"os"
 	"runtime"
 
@@ -52,43 +53,79 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Become the leader before proceeding
-	leader.Become(context.TODO(), "chaos-operator-lock")
+	wait := make(chan bool)
+	go (func() {
+		// Become the leader before proceeding
+		leader.Become(context.TODO(), "chaos-operator-lock")
 
-	r := ready.NewFileReady()
-	err = r.Set()
-	if err != nil {
-		log.Error(err, "")
-		os.Exit(1)
-	}
-	defer r.Unset()
+		r := ready.NewFileReady()
+		err = r.Set()
+		if err != nil {
+			log.Error(err, "")
+			os.Exit(1)
+		}
+		defer r.Unset()
 
-	// Create a new Cmd to provide shared dependencies and start components
-	mgr, err := manager.New(cfg, manager.Options{Namespace: namespace})
-	if err != nil {
-		log.Error(err, "")
-		os.Exit(1)
-	}
+		// Create a new Cmd to provide shared dependencies and start components
+		mgr, err := manager.New(cfg, manager.Options{Namespace: namespace})
+		if err != nil {
+			log.Error(err, "")
+			os.Exit(1)
+		}
 
-	log.Info("Registering Components.")
+		log.Info("Registering Components.")
 
-	// Setup Scheme for all resources
-	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
-		log.Error(err, "")
-		os.Exit(1)
-	}
+		// Setup Scheme for all resources
+		if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
+			log.Error(err, "")
+			wait<-true
+		}
 
-	// Setup all Controllers
-	if err := controller.AddController(mgr); err != nil {
-		log.Error(err, "")
-		os.Exit(1)
-	}
+		// Setup all Controllers
+		if err := controller.AddController(mgr); err != nil {
+			log.Error(err, "")
+			wait<-true
+		}
 
-	log.Info("Starting the Cmd.")
+		log.Info("Starting the Cmd.")
 
-	// Start the Cmd
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
-		log.Error(err, "manager exited non-zero")
-		os.Exit(1)
-	}
+		// Start the Cmd
+		if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+			log.Error(err, "manager exited non-zero")
+			wait<-true
+		}
+	})()
+
+	go (func() {
+		// Create a new Cmd to provide shared dependencies and start components
+		mgr, err := manager.New(cfg, manager.Options{Namespace: namespace})
+		if err != nil {
+			log.Error(err, "")
+			os.Exit(1)
+		}
+
+		log.Info("Registering Components.")
+
+		// Setup Scheme for all resources
+		if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
+			log.Error(err, "")
+			os.Exit(1)
+		}
+
+		// Setup all Controllers
+		if err := chaos.AddControllers(mgr); err != nil {
+			log.Error(err, "")
+			wait<-true
+		}
+
+		log.Info("Starting the Cmd.")
+
+		// Start the Cmd
+		if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+			log.Error(err, "manager exited non-zero")
+			wait<-true
+		}
+	})()
+	<-wait
+	os.Exit(1)
 }
