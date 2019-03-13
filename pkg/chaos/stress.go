@@ -311,8 +311,12 @@ func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) 
 
 	networkingConfig := &network.NetworkingConfig{}
 
-	_, err = cli.ContainerCreate(context.Background(), config, hostConfig, networkingConfig, stress.Name)
-	return err
+	create, err := cli.ContainerCreate(context.Background(), config, hostConfig, networkingConfig, stress.Name)
+	if err != nil {
+		return err
+	}
+
+	return cli.ContainerStart(context.Background(), create.ID, dockertypes.ContainerStartOptions{})
 }
 
 func (r *ReconcileStress) stop(stress *v1alpha1.Stress) error {
