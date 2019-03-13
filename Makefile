@@ -10,9 +10,11 @@ build: build-controller build-worker
 
 build-controller:
 	go build -o build/_output/bin/chaos-controller ./cmd/controller
+	docker build . -f build/controller/Dockerfile -t atomix/chaos-controller:latest
 
 build-worker:
 	go build -o build/_output/bin/chaos-worker ./cmd/worker
+	docker build . -f build/worker/Dockerfile -t atomix/chaos-worker:latest
 
 push: push-controller push-worker
 
