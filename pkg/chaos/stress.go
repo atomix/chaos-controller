@@ -43,11 +43,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"strings"
+	"time"
 )
 
 type StressMonkey struct {
 	context Context
 	monkey  *v1alpha1.ChaosMonkey
+	time    time.Time
+}
+
+func (m *StressMonkey) getHash() string {
+	return computeHash(m.time)
+}
+
+func (m *StressMonkey) getStressName(pod v1.Pod) string {
+	return fmt.Sprintf("%s-%s", m.monkey.Name, computeHash(pod.Name, m.time))
+}
+
+func (m *StressMonkey) getNamespacedName(pod v1.Pod) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: m.monkey.Namespace,
+		Name:      m.getStressName(pod),
+	}
 }
 
 func (m *StressMonkey) create(pods []v1.Pod) error {
@@ -61,9 +78,9 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 	for _, pod := range selected {
 		stress := &v1alpha1.Stress{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      pod.Name,
+				Name:      m.getStressName(pod),
 				Namespace: pod.Namespace,
-				Labels: getLabels(m.monkey),
+				Labels:    getLabels(m.monkey),
 			},
 			Spec: v1alpha1.StressSpec{
 				PodName: pod.Name,
@@ -73,9 +90,6 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 				HDD:     m.monkey.Spec.Stress.HDD,
 				Network: m.monkey.Spec.Stress.Network,
 			},
-			Status: v1alpha1.StressStatus{
-				Phase: v1alpha1.PhaseStarted,
-			},
 		}
 		if err := controllerutil.SetControllerReference(m.monkey, stress, m.context.scheme); err != nil {
 			return err
@@ -83,6 +97,8 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 		if err := m.context.client.Create(context.TODO(), stress); err != nil {
 			return err
 		}
+		stress.Status.Phase = v1alpha1.PhaseStarted
+		return m.context.client.Status().Update(context.TODO(), stress)
 	}
 	return nil
 }
@@ -90,7 +106,7 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 func (m *StressMonkey) delete(pods []v1.Pod) error {
 	for _, pod := range pods {
 		stress := &v1alpha1.Stress{}
-		err := m.context.client.Get(context.TODO(), types.NamespacedName{pod.Namespace, pod.Name}, stress)
+		err := m.context.client.Get(context.TODO(), m.getNamespacedName(pod), stress)
 		if err != nil {
 			if !errors.IsNotFound(err) {
 				return err
@@ -150,9 +166,9 @@ func (r *ReconcileStress) Reconcile(request reconcile.Request) (reconcile.Result
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
+			if err := r.cancel(request.NamespacedName); err != nil {
+				return reconcile.Result{}, err
+			}
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
@@ -162,7 +178,7 @@ func (r *ReconcileStress) Reconcile(request reconcile.Request) (reconcile.Result
 	if instance.Status.Phase == v1alpha1.PhaseStarted {
 		err = r.stress(instance)
 	} else if instance.Status.Phase == v1alpha1.PhaseStopped {
-		err = r.stop(instance)
+		err = r.destress(instance)
 	}
 	return reconcile.Result{}, err
 }
@@ -300,13 +316,17 @@ func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) 
 
 	config := &container.Config{
 		Image: "progrium/stress:latest",
-		Cmd: command,
+		Cmd:   command,
+		Labels: map[string]string{
+			"io.atomix.chaos.stress.name":      stress.Name,
+			"io.atomix.chaos.stress.namespace": stress.Namespace,
+		},
 	}
 
 	hostConfig := &container.HostConfig{
 		NetworkMode: "host",
-		Privileged: true,
-		PidMode: container.PidMode(fmt.Sprintf("container:%s", containers[0].ID)),
+		Privileged:  true,
+		PidMode:     container.PidMode(fmt.Sprintf("container:%s", containers[0].ID)),
 	}
 
 	networkingConfig := &network.NetworkingConfig{}
@@ -319,42 +339,24 @@ func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) 
 	return cli.ContainerStart(context.Background(), create.ID, dockertypes.ContainerStartOptions{})
 }
 
-func (r *ReconcileStress) stop(stress *v1alpha1.Stress) error {
-	if err := r.stopContainers(stress); err != nil {
+func (r *ReconcileStress) destress(stress *v1alpha1.Stress) error {
+	if err := r.destressContainers(stress); err != nil {
 		return err
 	}
-	if err := r.stopTrafficControl(stress); err != nil {
+	if err := r.destressNetwork(stress); err != nil {
 		return err
 	}
 	return r.setComplete(stress)
 }
 
-func (r *ReconcileStress) stopContainers(stress *v1alpha1.Stress) error {
-	cli, err := docker.NewEnvClient()
-	if err != nil {
-		return err
-	}
-
-	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
-		Filters: filters.NewArgs(filters.Arg("label=io.atomix.chaos.stress.name", stress.Name)),
+func (r *ReconcileStress) destressContainers(stress *v1alpha1.Stress) error {
+	return r.cancelContainers(types.NamespacedName{
+		Namespace: stress.Namespace,
+		Name:      stress.Name,
 	})
-	if err != nil {
-		return err
-	}
-
-	if len(containers) == 0 {
-		return nil
-	}
-
-	for _, c := range containers {
-		if err = cli.ContainerStop(context.Background(), c.ID, nil); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
-func (r *ReconcileStress) stopTrafficControl(stress *v1alpha1.Stress) error {
+func (r *ReconcileStress) destressNetwork(stress *v1alpha1.Stress) error {
 	ifaces, err := r.getInterfaces(stress)
 	if err != nil {
 		return err
@@ -385,6 +387,38 @@ func (r *ReconcileStress) stopTrafficControl(stress *v1alpha1.Stress) error {
 	return nil
 }
 
+func (r *ReconcileStress) cancel(name types.NamespacedName) error {
+	return r.cancelContainers(name)
+}
+
+func (r *ReconcileStress) cancelContainers(name types.NamespacedName) error {
+	cli, err := docker.NewEnvClient()
+	if err != nil {
+		return err
+	}
+
+	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label=io.atomix.chaos.stress.name", name.Name),
+			filters.Arg("label=io.atomix.chaos.stress.namespace", name.Namespace),
+		),
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(containers) == 0 {
+		return nil
+	}
+
+	for _, c := range containers {
+		if err = cli.ContainerStop(context.Background(), c.ID, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, error) {
 	cli, err := docker.NewEnvClient()
 	if err != nil {
@@ -392,7 +426,10 @@ func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, erro
 	}
 
 	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
-		Filters: filters.NewArgs(filters.Arg("label=io.kubernetes.pod.name", stress.Spec.PodName)),
+		Filters: filters.NewArgs(
+			filters.Arg("label=io.kubernetes.pod.name", stress.Spec.PodName),
+			filters.Arg("label=io.kubernetes.pod.namespace", stress.Namespace),
+		),
 	})
 	if err != nil {
 		return nil, err

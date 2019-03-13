@@ -25,11 +25,11 @@ import (
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/rest"
-	"math/rand"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -38,18 +38,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"time"
 )
 
 type CrashMonkey struct {
 	context Context
 	monkey  *v1alpha1.ChaosMonkey
+	time    time.Time
+}
+
+func (m *CrashMonkey) getHash() string {
+	return computeHash(m.time)
 }
 
 func (m *CrashMonkey) getCrashName(pod v1.Pod) string {
-	return fmt.Sprintf("%s-%s", m.monkey.Name, pod.Name)
+	return fmt.Sprintf("%s-%s", m.monkey.Name, computeHash(pod.Name, m.time))
 }
 
-func (m *CrashMonkey) getCrashNamespacedName(pod v1.Pod) types.NamespacedName {
+func (m *CrashMonkey) getNamespacedName(pod v1.Pod) types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: m.monkey.Namespace,
 		Name:      m.getCrashName(pod),
@@ -62,26 +68,27 @@ func (m *CrashMonkey) create(pods []v1.Pod) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.getCrashName(pod),
 			Namespace: pod.Namespace,
-			Labels: getLabels(m.monkey),
+			Labels:    getLabels(m.monkey),
 		},
 		Spec: v1alpha1.CrashSpec{
 			PodName:       pod.Name,
 			CrashStrategy: m.monkey.Spec.Crash.CrashStrategy,
 		},
-		Status: v1alpha1.CrashStatus{
-			Phase: v1alpha1.PhaseStarted,
-		},
 	}
 	if err := controllerutil.SetControllerReference(m.monkey, crash, m.context.scheme); err != nil {
 		return err
 	}
-	return m.context.client.Create(context.TODO(), crash)
+	if err := m.context.client.Create(context.TODO(), crash); err != nil {
+		return err
+	}
+	crash.Status.Phase = v1alpha1.PhaseStarted
+	return m.context.client.Status().Update(context.TODO(), crash)
 }
 
 func (m *CrashMonkey) delete(pods []v1.Pod) error {
 	for _, pod := range pods {
 		crash := &v1alpha1.Crash{}
-		err := m.context.client.Get(context.TODO(), m.getCrashNamespacedName(pod), crash)
+		err := m.context.client.Get(context.TODO(), m.getNamespacedName(pod), crash)
 		if err != nil {
 			if !errors.IsNotFound(err) {
 				return err

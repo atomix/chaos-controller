@@ -3,7 +3,7 @@ kind: ChaosMonkey
 metadata:
   name: partition-isolate
 spec:
-  rateSeconds: 600
+  rateSeconds: 60
   periodSeconds: 60
   jitter: .5
   selector:

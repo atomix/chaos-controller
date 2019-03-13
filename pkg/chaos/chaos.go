@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
-	"github.com/go-logr/logr"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -136,39 +135,20 @@ func (c *ChaosController) GetOrCreateMonkey(name types.NamespacedName, monkey *v
 func (c *ChaosController) newMonkey(monkey *v1alpha1.ChaosMonkey) *MonkeyController {
 	return &MonkeyController{
 		monkey: monkey,
-		client: c.context.client,
-		logger: log.WithValues("namespace", monkey.Namespace, "monkey", monkey.Name),
+		context: Context{
+			client:  c.context.client,
+			scheme:  c.context.scheme,
+			kubecli: c.context.kubecli,
+			config:  c.context.config,
+			log:     log.WithValues("namespace", monkey.Namespace, "monkey", monkey.Name),
+		},
 		selector: func() ([]v1.Pod, error) {
 			return c.selectPods(monkey, monkey.Spec.Selector)
 		},
 		rate:    time.Duration(*monkey.Spec.RateSeconds * int64(time.Second)),
 		period:  time.Duration(*monkey.Spec.PeriodSeconds * int64(time.Second)),
 		jitter:  *monkey.Spec.Jitter,
-		handler: c.newHandler(monkey),
 		stopped: make(chan struct{}),
-	}
-}
-
-// newHandler returns a new MonkeyHandler for the given ChaosMonkey configuration.
-func (c *ChaosController) newHandler(monkey *v1alpha1.ChaosMonkey) MonkeyHandler {
-	ctx := c.context.new(c.context.log.WithValues("monkey", monkey.Name))
-	if monkey.Spec.Crash != nil {
-		return &CrashMonkey{
-			context: ctx,
-			monkey:  monkey,
-		}
-	} else if monkey.Spec.Partition != nil {
-		return &PartitionMonkey{
-			context: ctx,
-			monkey:  monkey,
-		}
-	} else if monkey.Spec.Stress != nil {
-		return &StressMonkey{
-			context: ctx,
-			monkey:  monkey,
-		}
-	} else {
-		return &NilMonkey{}
 	}
 }
 
@@ -239,11 +219,9 @@ func (c *ChaosController) newFieldSelector(selector *v1alpha1.MonkeySelector) fi
 // MonkeyController manages the lifecycle of a single ChaosMonkey.
 type MonkeyController struct {
 	monkey   *v1alpha1.ChaosMonkey
-	client   runtimeclient.Client
-	logger   logr.Logger
 	selector func() ([]v1.Pod, error)
 	Started  bool
-	handler  MonkeyHandler
+	context  Context
 	stopped  chan struct{}
 	mu       sync.Mutex
 	rate     time.Duration
@@ -261,7 +239,8 @@ func (m *MonkeyController) Start() error {
 		m.period = 1 * time.Minute
 	}
 
-	m.logger.Info("Starting monkey")
+	m.context.log.Info("Starting monkey")
+	m.setRunning(true)
 
 	go func() {
 		// wait.Until will immediately trigger the monkey, so we need to wait for the configured rate first.
@@ -273,20 +252,20 @@ func (m *MonkeyController) Start() error {
 			var wg wait.Group
 			defer wg.Wait()
 
-			m.logger.Info("Running monkey")
+			m.context.log.Info("Running monkey")
+			handler := m.newHandler(m.monkey)
 
 			stop := make(chan struct{})
 			pods, err := m.selector()
 			wg.StartWithChannel(stop, func(stop <-chan struct{}) {
 				if err != nil {
-					m.logger.Error(err, "Failed to select pods")
+					m.context.log.Error(err, "Failed to select pods")
 				} else if len(pods) == 0 {
-					m.logger.Info("No pods selected")
+					m.context.log.Info("No pods selected")
 				} else {
-					m.setRunning(true)
-					err = m.handler.create(pods)
+					err = handler.create(pods)
 					if err != nil {
-						m.logger.Error(err, "Failed to create tasks")
+						m.context.log.Error(err, "Failed to create tasks")
 					}
 				}
 			})
@@ -295,21 +274,19 @@ func (m *MonkeyController) Start() error {
 			for {
 				select {
 				case <-m.stopped:
-					m.logger.Info("Monkey stopped")
-					err = m.handler.delete(pods)
+					m.context.log.Info("Monkey stopped")
+					err = handler.delete(pods)
 					if err != nil {
-						m.logger.Error(err, "Failed to stop tasks")
+						m.context.log.Error(err, "Failed to stop tasks")
 					}
-					m.setRunning(false)
 					stop <- struct{}{}
 					return
 				case <-t.C:
-					m.logger.Info("Monkey period expired")
-					err = m.handler.delete(pods)
+					m.context.log.Info("Monkey period expired")
+					err = handler.delete(pods)
 					if err != nil {
-						m.logger.Error(err, "Failed to stop tasks")
+						m.context.log.Error(err, "Failed to stop tasks")
 					}
-					m.setRunning(false)
 					stop <- struct{}{}
 					return
 				}
@@ -323,18 +300,44 @@ func (m *MonkeyController) Start() error {
 	return nil
 }
 
+// newHandler returns a new MonkeyHandler for the given ChaosMonkey configuration.
+func (c *MonkeyController) newHandler(monkey *v1alpha1.ChaosMonkey) MonkeyHandler {
+	ctx := c.context.new(c.context.log.WithValues("monkey", monkey.Name))
+	if monkey.Spec.Crash != nil {
+		return &CrashMonkey{
+			context: ctx,
+			monkey:  monkey,
+			time:    time.Now(),
+		}
+	} else if monkey.Spec.Partition != nil {
+		return &PartitionMonkey{
+			context: ctx,
+			monkey:  monkey,
+			time:    time.Now(),
+		}
+	} else if monkey.Spec.Stress != nil {
+		return &StressMonkey{
+			context: ctx,
+			monkey:  monkey,
+			time:    time.Now(),
+		}
+	} else {
+		return &NilMonkey{}
+	}
+}
+
 // Stop stops the chaos monkey and workers.
 func (m *MonkeyController) Stop() {
-	m.logger.Info("Stopping monkey")
+	m.context.log.Info("Stopping monkey")
 	close(m.stopped)
 }
 
 // setRunning updates the ChaosMonkey status to indicate that the monkey is currently running.
 func (m *MonkeyController) setRunning(running bool) {
 	m.monkey.Status.Running = running
-	err := m.client.Update(context.TODO(), m.monkey)
+	err := m.context.client.Status().Update(context.TODO(), m.monkey)
 	if err != nil {
-		m.logger.Error(err, "Failed to update monkey status")
+		m.context.log.Error(err, "Failed to update monkey status")
 	}
 }
 
@@ -357,7 +360,7 @@ func (m *NilMonkey) delete(pods []v1.Pod) error {
 
 func getLabels(monkey *v1alpha1.ChaosMonkey) map[string]string {
 	return map[string]string{
-		"app": "chaos-controller",
+		"app":    "chaos-controller",
 		"monkey": monkey.Name,
 	}
 }

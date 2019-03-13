@@ -39,18 +39,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"time"
 )
 
 type PartitionMonkey struct {
 	context Context
 	monkey  *v1alpha1.ChaosMonkey
+	time    time.Time
+}
+
+func (m *PartitionMonkey) getHash() string {
+	return computeHash(m.time)
 }
 
 func (m *PartitionMonkey) getPartitionName(local v1.Pod, remote v1.Pod) string {
-	return fmt.Sprintf("%s-%s-%s", m.monkey.Name, local.Name, remote.Name)
+	return fmt.Sprintf("%s-%s", m.monkey.Name, computeHash(local.Name, remote.Name, m.time))
 }
 
-func (m *PartitionMonkey) getPartitionNamespacedName(local v1.Pod, remote v1.Pod) types.NamespacedName {
+func (m *PartitionMonkey) getNamespacedName(local v1.Pod, remote v1.Pod) types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: m.monkey.Namespace,
 		Name:      m.getPartitionName(local, remote),
@@ -162,7 +168,6 @@ func (m *PartitionMonkey) createHalves(pods []v1.Pod) error {
 }
 
 func (m *PartitionMonkey) createPartition(local v1.Pod, remote v1.Pod) error {
-	// TODO: Set the parent of the network partition
 	partition := &v1alpha1.NetworkPartition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.getPartitionName(local, remote),
@@ -173,14 +178,15 @@ func (m *PartitionMonkey) createPartition(local v1.Pod, remote v1.Pod) error {
 			PodName:    local.Name,
 			SourceName: remote.Name,
 		},
-		Status: v1alpha1.NetworkPartitionStatus{
-			Phase: v1alpha1.PhaseStarted,
-		},
 	}
 	if err := controllerutil.SetControllerReference(m.monkey, partition, m.context.scheme); err != nil {
 		return err
 	}
-	return m.context.client.Create(context.TODO(), partition)
+	if err := m.context.client.Create(context.TODO(), partition); err != nil {
+		return err
+	}
+	partition.Status.Phase = v1alpha1.PhaseStarted
+	return m.context.client.Status().Update(context.TODO(), partition)
 }
 
 func (m *PartitionMonkey) delete(pods []v1.Pod) error {
@@ -188,7 +194,7 @@ func (m *PartitionMonkey) delete(pods []v1.Pod) error {
 	for _, local := range pods {
 		for _, remote := range pods {
 			partition := &v1alpha1.NetworkPartition{}
-			err := m.context.client.Get(context.TODO(), m.getPartitionNamespacedName(local, remote), partition)
+			err := m.context.client.Get(context.TODO(), m.getNamespacedName(local, remote), partition)
 			if err != nil {
 				if !errors.IsNotFound(err) {
 					return err
@@ -249,9 +255,9 @@ func (r *ReconcileNetworkPartition) Reconcile(request reconcile.Request) (reconc
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
+			if err := r.delete(request.NamespacedName); err != nil {
+				return reconcile.Result{}, err
+			}
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
@@ -275,6 +281,13 @@ func (r *ReconcileNetworkPartition) setRunning(partition *v1alpha1.NetworkPartit
 func (r *ReconcileNetworkPartition) setComplete(partition *v1alpha1.NetworkPartition) error {
 	partition.Status.Phase = v1alpha1.PhaseComplete
 	return r.client.Status().Update(context.TODO(), partition)
+}
+
+func (r *ReconcileNetworkPartition) getNamespacedName(partition *v1alpha1.NetworkPartition) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: partition.Namespace,
+		Name:      partition.Name,
+	}
 }
 
 func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartition) error {
@@ -333,11 +346,15 @@ func (r *ReconcileNetworkPartition) getInterfaces(stress *v1alpha1.NetworkPartit
 }
 
 func (r *ReconcileNetworkPartition) heal(partition *v1alpha1.NetworkPartition) error {
-	_, err := r.exec("bash", "-c", "iptables -D INPUT $(iptables -L INPUT --line-number | grep "+partition.Name+" | awk '{print $1}')")
-	if err != nil {
+	if err := r.delete(r.getNamespacedName(partition)); err != nil {
 		return err
 	}
 	return r.setComplete(partition)
+}
+
+func (r *ReconcileNetworkPartition) delete(name types.NamespacedName) error {
+	_, err := r.exec("bash", "-c", "iptables -D INPUT $(iptables -L INPUT --line-number | grep "+name.String()+" | awk '{print $1}')")
+	return err
 }
 
 func (r *ReconcileNetworkPartition) exec(command string, args ...string) (string, error) {

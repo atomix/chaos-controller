@@ -20,9 +20,13 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-logr/logr"
+	"hash"
+	"hash/fnv"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -89,4 +93,23 @@ func (c *Context) exec(pod v1.Pod, container *v1.Container, command ...string) (
 	}
 
 	return stdout.String(), nil
+}
+
+func computeHash(objects ...interface{}) string {
+	hasher := fnv.New32a()
+	deepHashObject(hasher, objects)
+	return rand.SafeEncodeString(fmt.Sprint(hasher.Sum32()))
+}
+
+func deepHashObject(hasher hash.Hash, objects ...interface{}) {
+	hasher.Reset()
+	printer := spew.ConfigState{
+		Indent:         " ",
+		SortKeys:       true,
+		DisableMethods: true,
+		SpewKeys:       true,
+	}
+	for _, obj := range objects {
+		printer.Fprintf(hasher, "%#v", obj)
+	}
 }
