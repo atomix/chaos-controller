@@ -172,32 +172,30 @@ func (c *ChaosController) selectPods(monkey *v1alpha1.ChaosMonkey, selector *v1a
 // newLabelSelector returns a new label selector derived from the given MonkeySelector.
 func (c *ChaosController) newLabelSelector(monkey *v1alpha1.ChaosMonkey, selector *v1alpha1.MonkeySelector) labels.Selector {
 	labelSelector := labels.NewSelector()
-	if selector != nil {
-		if selector.LabelSelector != nil {
-			for label, value := range selector.MatchLabels {
-				r, err := labels.NewRequirement(label, selection.Equals, []string{value})
-				if err == nil {
-					labelSelector.Add(*r)
-				}
+	if selector != nil && selector.LabelSelector != nil {
+		for label, value := range selector.MatchLabels {
+			r, err := labels.NewRequirement(label, selection.Equals, []string{value})
+			if err == nil {
+				labelSelector = labelSelector.Add(*r)
+			}
+		}
+
+		for _, requirement := range selector.MatchExpressions {
+			var operator selection.Operator
+			switch requirement.Operator {
+			case metav1.LabelSelectorOpIn:
+				operator = selection.In
+			case metav1.LabelSelectorOpNotIn:
+				operator = selection.NotIn
+			case metav1.LabelSelectorOpExists:
+				operator = selection.Exists
+			case metav1.LabelSelectorOpDoesNotExist:
+				operator = selection.DoesNotExist
 			}
 
-			for _, requirement := range selector.MatchExpressions {
-				var operator selection.Operator
-				switch requirement.Operator {
-				case metav1.LabelSelectorOpIn:
-					operator = selection.In
-				case metav1.LabelSelectorOpNotIn:
-					operator = selection.NotIn
-				case metav1.LabelSelectorOpExists:
-					operator = selection.Exists
-				case metav1.LabelSelectorOpDoesNotExist:
-					operator = selection.DoesNotExist
-				}
-
-				r, err := labels.NewRequirement(requirement.Key, operator, requirement.Values)
-				if err == nil {
-					labelSelector.Add(*r)
-				}
+			r, err := labels.NewRequirement(requirement.Key, operator, requirement.Values)
+			if err == nil {
+				labelSelector = labelSelector.Add(*r)
 			}
 		}
 	}
@@ -206,7 +204,7 @@ func (c *ChaosController) newLabelSelector(monkey *v1alpha1.ChaosMonkey, selecto
 
 // newFieldSelector returns a new field selector derived from the given MonkeySelector.
 func (c *ChaosController) newFieldSelector(selector *v1alpha1.MonkeySelector) fields.Selector {
-	if selector.PodSelector != nil {
+	if selector != nil && selector.PodSelector != nil {
 		podNames := map[string]string{}
 		for _, name := range selector.MatchPods {
 			podNames["metadata.name"] = name
