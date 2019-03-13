@@ -1,33 +1,32 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ template "fullname" . }}-worker
-  chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
-  release: "{{ .Release.Name }}"
-  heritage: "{{ .Release.Service }}"
+  name: chaos-worker
 spec:
+  replicas: 1
   selector:
     matchLabels:
-      name: {{ template "fullname" . }}-worker
+      name: chaos-worker
   template:
     metadata:
       labels:
-        name: {{ template "fullname" . }}-worker
+        name: chaos-worker
     spec:
-      serviceAccountName: {{ template "fullname" . }}
+      serviceAccountName: chaos-controller
       securityContext:
         fsGroup: 999
         privileged: true
       hostNetwork: true
       containers:
-        - name: {{ .Chart.Name }}-worker
-          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
-          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+        - name: chaos-worker
+          # Replace this with the built image name
+          image: atomix/chaos-worker
           ports:
           - containerPort: 60000
             name: metrics
           command:
-          - chaos-controller
+          - chaos-worker
+          imagePullPolicy: Always
           readinessProbe:
             exec:
               command:
@@ -50,7 +49,7 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             - name: OPERATOR_NAME
-              value: "{{ template "fullname" . }}"
+              value: "chaos-worker"
           volumeMounts:
             - name: dockersock
               mountPath: "/var/run/docker.sock"

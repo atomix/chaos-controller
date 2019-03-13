@@ -33,11 +33,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sync"
 	"time"
 )
@@ -60,22 +57,6 @@ func AddControllers(mgr manager.Manager) error {
 	}
 
 	err = addStressController(mgr)
-	if err != nil {
-		return err
-	}
-	r := &ReconcileCrash{
-		client: mgr.GetClient(),
-		scheme: mgr.GetScheme(),
-		config: mgr.GetConfig(),
-	}
-
-	c, err := controller.New("crash", mgr, controller.Options{Reconciler: r})
-	if err != nil {
-		return err
-	}
-
-	// Watch for changes to Crash resource
-	err = c.Watch(&source.Kind{Type: &v1alpha1.Crash{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
 	}

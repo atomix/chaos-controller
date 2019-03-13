@@ -206,7 +206,7 @@ func (m *PartitionMonkey) delete(pods []v1.Pod) error {
 	return nil
 }
 
-// addPartitionController adds a Crash resource controller to the given manager
+// addPartitionController adds a Crash resource controller to the given controller
 func addPartitionController(mgr manager.Manager) error {
 	r := &ReconcileNetworkPartition{
 		client: mgr.GetClient(),
@@ -214,7 +214,7 @@ func addPartitionController(mgr manager.Manager) error {
 		config: mgr.GetConfig(),
 	}
 
-	c, err := controller.New("crash", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New("partition", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}

@@ -13,10 +13,6 @@ spec:
         name: chaos-controller
     spec:
       serviceAccountName: chaos-controller
-      securityContext:
-        fsGroup: 999
-        privileged: true
-      hostNetwork: true
       containers:
         - name: chaos-controller
           # Replace this with the built image name
@@ -44,16 +40,5 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
             - name: OPERATOR_NAME
               value: "chaos-controller"
-          volumeMounts:
-            - name: dockersock
-              mountPath: "/var/run/docker.sock"
-      volumes:
-        - name: dockersock
-          hostPath:
-            path: /var/run/docker.sock

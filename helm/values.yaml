@@ -3,13 +3,26 @@ nameOverride: ""
 crd:
   enabled: true
 
-image:
-  repository: atomix/chaos-controller
-  tag: latest
-  pullPolicy: IfNotPresent
-  pullSecrets: []
+controller:
+  replicas: 1
+  image:
+    repository: atomix/chaos-controller
+    tag: latest
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    requests:
+      cpu: 0.5
+      memory: 512Mi
 
-resources:
-  requests:
-    cpu: 0.5
-    memory: 512Mi
+worker:
+  replicas: 1
+  image:
+    repository: atomix/chaos-worker
+    tag: latest
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    requests:
+      cpu: 0.5
+      memory: 512Mi

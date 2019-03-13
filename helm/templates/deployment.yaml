@@ -1,18 +1,19 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ template "fullname" . }}-worker
+  name: {{ template "fullname" . }}
   chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
   release: "{{ .Release.Name }}"
   heritage: "{{ .Release.Service }}"
 spec:
+  replicas: {{ .Values.controller.replicas }}
   selector:
     matchLabels:
-      name: {{ template "fullname" . }}-worker
+      name: {{ template "fullname" . }}
   template:
     metadata:
       labels:
-        name: {{ template "fullname" . }}-worker
+        name: {{ template "fullname" . }}
     spec:
       serviceAccountName: {{ template "fullname" . }}
       securityContext:
@@ -20,9 +21,9 @@ spec:
         privileged: true
       hostNetwork: true
       containers:
-        - name: {{ .Chart.Name }}-worker
-          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
-          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
           ports:
           - containerPort: 60000
             name: metrics

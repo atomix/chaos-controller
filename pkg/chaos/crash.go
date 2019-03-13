@@ -100,7 +100,7 @@ func (m *CrashMonkey) delete(pods []v1.Pod) error {
 	return nil
 }
 
-// addCrashController adds a Crash resource controller to the given manager
+// addCrashController adds a Crash resource controller to the given controller
 func addCrashController(mgr manager.Manager) error {
 	r := &ReconcileCrash{
 		client: mgr.GetClient(),

@@ -107,7 +107,7 @@ func (m *StressMonkey) delete(pods []v1.Pod) error {
 	return nil
 }
 
-// addStressController adds a Stress resource controller to the given manager
+// addStressController adds a Stress resource controller to the given controller
 func addStressController(mgr manager.Manager) error {
 	r := &ReconcileNetworkPartition{
 		client: mgr.GetClient(),
@@ -115,7 +115,7 @@ func addStressController(mgr manager.Manager) error {
 		config: mgr.GetConfig(),
 	}
 
-	c, err := controller.New("crash", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New("stress", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}

@@ -261,8 +261,3 @@ type StressList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Stress `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&ChaosMonkey{}, &ChaosMonkeyList{})
-	SchemeBuilder.Register(&Crash{}, &CrashList{})
-}
