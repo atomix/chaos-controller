@@ -72,7 +72,7 @@ func (r *ReconcileChaosMonkey) Reconcile(request reconcile.Request) (reconcile.R
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			monkey := r.chaos.GetMonkey(request.NamespacedName)
+			monkey := r.chaos.RemoveMonkey(request.NamespacedName)
 			if monkey != nil {
 				monkey.Stop()
 			}

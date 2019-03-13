@@ -11,16 +11,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/runtime/scheme"
 )
 
-func AddChaosToScheme(s *runtime.Scheme) error {
+func AddToScheme(s *runtime.Scheme) error {
 	groupVersion := schema.GroupVersion{Group: "chaos.atomix.io", Version: "v1alpha1"}
 	schemeBuilder := &scheme.Builder{GroupVersion: groupVersion}
 	schemeBuilder.Register(&ChaosMonkey{}, &ChaosMonkeyList{})
-	return schemeBuilder.AddToScheme(s)
-}
-
-func AddFunctionsToScheme(s *runtime.Scheme) error {
-	groupVersion := schema.GroupVersion{Group: "chaos.atomix.io", Version: "v1alpha1"}
-	schemeBuilder := &scheme.Builder{GroupVersion: groupVersion}
 	schemeBuilder.Register(&Crash{}, &CrashList{})
 	schemeBuilder.Register(&NetworkPartition{}, &NetworkPartitionList{})
 	schemeBuilder.Register(&Stress{}, &StressList{})

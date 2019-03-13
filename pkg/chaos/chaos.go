@@ -116,8 +116,10 @@ func getName(name types.NamespacedName) string {
 }
 
 // GetMonkey returns a named chaos MonkeyController if one exists, otherwise nil.
-func (c *ChaosController) GetMonkey(name types.NamespacedName) *MonkeyController {
-	return c.monkeys[getName(name)]
+func (c *ChaosController) RemoveMonkey(name types.NamespacedName) *MonkeyController {
+	m := c.monkeys[getName(name)]
+	delete(c.monkeys, getName(name))
+	return m
 }
 
 // GetOrCreateMonkey returns a named multiton chaos MonkeyController, creating one if one does not already exist.
@@ -255,14 +257,11 @@ func (m *MonkeyController) Start() error {
 
 	defer utilruntime.HandleCrash()
 
-	// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
-	m.logger.Info("Starting monkey")
-
 	if m.period == 0 {
 		m.period = 1 * time.Minute
 	}
 
-	m.logger.Info("Starting worker")
+	m.logger.Info("Starting monkey")
 
 	go func() {
 		// wait.Until will immediately trigger the monkey, so we need to wait for the configured rate first.
@@ -273,6 +272,8 @@ func (m *MonkeyController) Start() error {
 		wait.JitterUntil(func() {
 			var wg wait.Group
 			defer wg.Wait()
+
+			m.logger.Info("Running monkey")
 
 			stop := make(chan struct{})
 			pods, err := m.selector()
@@ -285,7 +286,7 @@ func (m *MonkeyController) Start() error {
 					m.setRunning(true)
 					err = m.handler.create(pods)
 					if err != nil {
-						m.logger.Error(err, "Failed to create workers")
+						m.logger.Error(err, "Failed to create tasks")
 					}
 				}
 			})
@@ -297,7 +298,7 @@ func (m *MonkeyController) Start() error {
 					m.logger.Info("Monkey stopped")
 					err = m.handler.delete(pods)
 					if err != nil {
-						m.logger.Error(err, "Failed to stop workers")
+						m.logger.Error(err, "Failed to stop tasks")
 					}
 					m.setRunning(false)
 					stop <- struct{}{}
@@ -306,7 +307,7 @@ func (m *MonkeyController) Start() error {
 					m.logger.Info("Monkey period expired")
 					err = m.handler.delete(pods)
 					if err != nil {
-						m.logger.Error(err, "Failed to stop workers")
+						m.logger.Error(err, "Failed to stop tasks")
 					}
 					m.setRunning(false)
 					stop <- struct{}{}
@@ -324,6 +325,7 @@ func (m *MonkeyController) Start() error {
 
 // Stop stops the chaos monkey and workers.
 func (m *MonkeyController) Stop() {
+	m.logger.Info("Stopping monkey")
 	close(m.stopped)
 }
 
