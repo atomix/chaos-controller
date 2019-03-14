@@ -253,40 +253,31 @@ func (m *MonkeyController) Start() error {
 			m.context.log.Info("Running monkey")
 			handler := m.newHandler(m.monkey)
 
-			stop := make(chan struct{})
 			pods, err := m.selector()
-			wg.StartWithChannel(stop, func(stop <-chan struct{}) {
+			if err != nil {
+				m.context.log.Error(err, "Failed to select pods")
+			} else if len(pods) == 0 {
+				m.context.log.Info("No pods selected")
+			} else {
+				err = handler.create(pods)
 				if err != nil {
-					m.context.log.Error(err, "Failed to select pods")
-				} else if len(pods) == 0 {
-					m.context.log.Info("No pods selected")
-				} else {
-					err = handler.create(pods)
-					if err != nil {
-						m.context.log.Error(err, "Failed to create tasks")
-					}
+					m.context.log.Error(err, "Failed to create tasks")
 				}
-			})
+			}
 
 			t := time.NewTimer(m.period)
-			for {
-				select {
-				case <-m.stopped:
-					m.context.log.Info("Monkey stopped")
-					err = handler.delete(pods)
-					if err != nil {
-						m.context.log.Error(err, "Failed to stop tasks")
-					}
-					stop <- struct{}{}
-					return
-				case <-t.C:
-					m.context.log.Info("Monkey period expired")
-					err = handler.delete(pods)
-					if err != nil {
-						m.context.log.Error(err, "Failed to stop tasks")
-					}
-					stop <- struct{}{}
-					return
+			select {
+			case <-m.stopped:
+				m.context.log.Info("Monkey stopped")
+				err = handler.delete(pods)
+				if err != nil {
+					m.context.log.Error(err, "Failed to stop tasks")
+				}
+			case <-t.C:
+				m.context.log.Info("Monkey complete")
+				err = handler.delete(pods)
+				if err != nil {
+					m.context.log.Error(err, "Failed to stop tasks")
 				}
 			}
 		}, m.rate, m.jitter, true, m.stopped)

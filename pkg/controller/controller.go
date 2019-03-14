@@ -64,7 +64,7 @@ type ReconcileChaosMonkey struct {
 // Reconcile reads that state of the cluster for a ChaosMonkey object and makes changes based on the state read
 // and what is in the ChaosMonkey.Spec
 func (r *ReconcileChaosMonkey) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
+	reqLogger := log.WithValues("namespace", request.Namespace, "name", request.Name)
 	reqLogger.Info("Reconciling ChaosMonkey")
 
 	// Fetch the ChaosMonkey instance
