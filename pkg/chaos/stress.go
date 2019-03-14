@@ -464,14 +464,20 @@ func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, erro
 
 	var ifaces []string
 	for _, c := range containers {
-		ifindex, err := r.exec("bash", "-c", "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2")
+		cmd := "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2"
+		ifindex, err := r.exec("bash", "-c", cmd)
 		if err != nil {
 			return nil, err
+		} else if ifindex == "" {
+			continue
 		}
 
-		iface, err := r.exec("bash", "-c", "ip addr | grep \""+ifindex+":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'")
+		cmd = "ip addr | grep \""+strings.TrimSuffix(ifindex, "\n")+":\" | cut -d \":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'"
+		iface, err := r.exec("bash", "-c", cmd)
 		if err != nil {
 			return nil, err
+		} else if iface == "" {
+			continue
 		}
 		ifaces = append(ifaces, iface)
 	}

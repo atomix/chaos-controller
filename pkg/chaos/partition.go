@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"strings"
 	"time"
 )
 
@@ -326,7 +327,9 @@ func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartiti
 	}
 
 	for _, iface := range ifaces {
-		_, err = r.exec("bash", "-c", "iptables -A INPUT -i "+iface+" -s "+sourceIp+" -j DROP -w -m comment --comment \""+r.getNamespacedName(partition).String()+"\"")
+		cmd := "iptables -A INPUT -i "+iface+" -s "+sourceIp+" -j DROP -w -m comment --comment \""+r.getNamespacedName(partition).String()+"\""
+		logger.Info("Executing command", "command", cmd)
+		_, err = r.exec("bash", "-c", cmd)
 		if err != nil {
 			logger.Error(err, "Failed to partition pod")
 			return err
@@ -353,14 +356,20 @@ func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPar
 
 	var ifaces []string
 	for _, c := range containers {
-		ifindex, err := r.exec("bash", "-c", "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2")
+		cmd := "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2"
+		ifindex, err := r.exec("bash", "-c", cmd)
 		if err != nil {
 			return nil, err
+		} else if ifindex == "" {
+			continue
 		}
 
-		iface, err := r.exec("bash", "-c", "ip addr | grep \""+ifindex+":\" | cut -d \":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'")
+		cmd = "ip addr | grep \""+strings.TrimSuffix(ifindex, "\n")+":\" | cut -d \":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'"
+		iface, err := r.exec("bash", "-c", cmd)
 		if err != nil {
 			return nil, err
+		} else if iface == "" {
+			continue
 		}
 		ifaces = append(ifaces, iface)
 	}
@@ -376,7 +385,9 @@ func (r *ReconcileNetworkPartition) heal(partition *v1alpha1.NetworkPartition) e
 
 func (r *ReconcileNetworkPartition) delete(name types.NamespacedName) error {
 	logger := log.WithValues("namespace", name.Namespace, "name", name.Name)
-	_, err := r.exec("bash", "-c", "iptables -D INPUT $(iptables -L INPUT --line-number | grep "+name.String()+" | awk '{print $1}')")
+	cmd := "iptables -D INPUT $(iptables -L INPUT --line-number | grep \""+name.String()+"\" | awk '{print $1}')"
+	logger.Info("Executing command", "command", cmd)
+	_, err := r.exec("bash", "-c", cmd)
 	if err != nil {
 		logger.Error(err, "Failed to heal partition")
 		return err
