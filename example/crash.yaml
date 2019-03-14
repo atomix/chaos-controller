@@ -1,0 +1,8 @@
+apiVersion: chaos.atomix.io/v1alpha1
+kind: Crash
+metadata:
+  name: crash-raft-0
+spec:
+  podName: raft-group-0
+  crashStrategy:
+    type: Pod

@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"math/rand"
 	"os"
@@ -94,11 +95,7 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 		if err := controllerutil.SetControllerReference(m.monkey, stress, m.context.scheme); err != nil {
 			return err
 		}
-		if err := m.context.client.Create(context.TODO(), stress); err != nil {
-			return err
-		}
-		stress.Status.Phase = v1alpha1.PhaseStarted
-		return m.context.client.Status().Update(context.TODO(), stress)
+		return m.context.client.Create(context.TODO(), stress)
 	}
 	return nil
 }
@@ -129,6 +126,7 @@ func addStressController(mgr manager.Manager) error {
 		client: mgr.GetClient(),
 		scheme: mgr.GetScheme(),
 		config: mgr.GetConfig(),
+		kube:   kubernetes.NewForConfigOrDie(mgr.GetConfig()),
 	}
 
 	c, err := controller.New("stress", mgr, controller.Options{Reconciler: r})
@@ -153,6 +151,7 @@ type ReconcileStress struct {
 	client client.Client
 	scheme *runtime.Scheme
 	config *rest.Config
+	kube   kubernetes.Interface
 }
 
 // Reconcile reads that state of the cluster for a Stress object and makes changes based on the state read
@@ -175,12 +174,25 @@ func (r *ReconcileStress) Reconcile(request reconcile.Request) (reconcile.Result
 		return reconcile.Result{}, err
 	}
 
+	// If the partition has not yet been started, update the status.
+	if instance.Status.Phase == "" {
+		if err := r.setStarted(instance); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
+	// If the stress has been started, start the stressers.
 	if instance.Status.Phase == v1alpha1.PhaseStarted {
 		err = r.stress(instance)
 	} else if instance.Status.Phase == v1alpha1.PhaseStopped {
 		err = r.destress(instance)
 	}
 	return reconcile.Result{}, err
+}
+
+func (r *ReconcileStress) setStarted(stress *v1alpha1.Stress) error {
+	stress.Status.Phase = v1alpha1.PhaseStarted
+	return r.client.Status().Update(context.TODO(), stress)
 }
 
 func (r *ReconcileStress) setRunning(stress *v1alpha1.Stress) error {

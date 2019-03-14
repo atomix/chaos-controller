@@ -1,0 +1,8 @@
+apiVersion: chaos.atomix.io/v1alpha1
+kind: Stress
+metadata:
+  name: stress-raft-0
+spec:
+  podName: raft-group-0
+  network:
+    latencyMilliseconds: 500

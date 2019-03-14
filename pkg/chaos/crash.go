@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -78,11 +79,7 @@ func (m *CrashMonkey) create(pods []v1.Pod) error {
 	if err := controllerutil.SetControllerReference(m.monkey, crash, m.context.scheme); err != nil {
 		return err
 	}
-	if err := m.context.client.Create(context.TODO(), crash); err != nil {
-		return err
-	}
-	crash.Status.Phase = v1alpha1.PhaseStarted
-	return m.context.client.Status().Update(context.TODO(), crash)
+	return m.context.client.Create(context.TODO(), crash)
 }
 
 func (m *CrashMonkey) delete(pods []v1.Pod) error {
@@ -113,6 +110,7 @@ func addCrashController(mgr manager.Manager) error {
 		client: mgr.GetClient(),
 		scheme: mgr.GetScheme(),
 		config: mgr.GetConfig(),
+		kube:   kubernetes.NewForConfigOrDie(mgr.GetConfig()),
 	}
 
 	c, err := controller.New("crash", mgr, controller.Options{Reconciler: r})
@@ -137,13 +135,14 @@ type ReconcileCrash struct {
 	client client.Client
 	scheme *runtime.Scheme
 	config *rest.Config
+	kube   kubernetes.Interface
 }
 
 // Reconcile reads that state of the cluster for a ChaosMonkey object and makes changes based on the state read
 // and what is in the ChaosMonkey.Spec
 func (r *ReconcileCrash) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
-	reqLogger.Info("Reconciling ChaosMonkey")
+	logger := log.WithValues("namespace", request.Namespace, "name", request.Name)
+	logger.Info("Reconciling Crash")
 
 	// Fetch the ChaosMonkey instance
 	instance := &v1alpha1.Crash{}
@@ -159,6 +158,13 @@ func (r *ReconcileCrash) Reconcile(request reconcile.Request) (reconcile.Result,
 		return reconcile.Result{}, err
 	}
 
+	// If the partition has not yet been started, update the status.
+	if instance.Status.Phase == "" {
+		if err := r.setStarted(instance); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	// If the status is running, execute the crash
 	if instance.Status.Phase == v1alpha1.PhaseStarted {
 		err = r.crash(instance)
@@ -169,12 +175,19 @@ func (r *ReconcileCrash) Reconcile(request reconcile.Request) (reconcile.Result,
 func (r *ReconcileCrash) crash(crash *v1alpha1.Crash) error {
 	switch crash.Spec.CrashStrategy.Type {
 	case v1alpha1.CrashPod:
+		log.Info("CrashPod")
 		return r.crashPod(crash)
 	case v1alpha1.CrashContainer:
+		log.Info("CrashContainer")
 		return r.crashContainer(crash)
 	default:
 		return nil
 	}
+}
+
+func (r *ReconcileCrash) setStarted(crash *v1alpha1.Crash) error {
+	crash.Status.Phase = v1alpha1.PhaseStarted
+	return r.client.Status().Update(context.TODO(), crash)
 }
 
 func (r *ReconcileCrash) setRunning(crash *v1alpha1.Crash) error {
@@ -204,9 +217,12 @@ func (r *ReconcileCrash) getLocalPod(crash *v1alpha1.Crash) (*v1.Pod, error) {
 }
 
 func (r *ReconcileCrash) crashPod(crash *v1alpha1.Crash) error {
+	logger := log.WithValues("namespace", crash.Namespace, "name", crash.Name, "pod", crash.Spec.PodName)
+
 	// Check if the pod belongs to the local node and load the pod
 	pod, err := r.getLocalPod(crash)
 	if err != nil {
+		logger.Info("Not local pod")
 		return err
 	}
 
@@ -217,6 +233,7 @@ func (r *ReconcileCrash) crashPod(crash *v1alpha1.Crash) error {
 	}
 
 	// Delete the pod
+	logger.Info("Deleting pod")
 	err = r.client.Delete(context.TODO(), pod)
 	if err != nil {
 		return err
@@ -231,9 +248,12 @@ func (r *ReconcileCrash) crashPod(crash *v1alpha1.Crash) error {
 }
 
 func (r *ReconcileCrash) crashContainer(crash *v1alpha1.Crash) error {
+	logger := log.WithValues("namespace", crash.Namespace, "name", crash.Name, "pod", crash.Spec.PodName)
+
 	// Check if the pod belongs to the local node and load the pod
 	_, err := r.getLocalPod(crash)
 	if err != nil {
+		logger.Info("Not local pod")
 		return err
 	}
 
@@ -246,14 +266,19 @@ func (r *ReconcileCrash) crashContainer(crash *v1alpha1.Crash) error {
 	// Create a new Docker client
 	cli, err := docker.NewEnvClient()
 	if err != nil {
+		logger.Error(err, "Cannot connect to Docker daemon")
 		return err
 	}
 
 	// Find the Docker container for the pod
 	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
-		Filters: filters.NewArgs(filters.Arg("label=io.kubernetes.pod.name", crash.Spec.PodName)),
+		Filters: filters.NewArgs(
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.name", crash.Spec.PodName)),
+			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.namespace", crash.Namespace)),
+		),
 	})
 	if err != nil {
+		logger.Error(err, "Could not locate pod containers")
 		return err
 	}
 
@@ -262,9 +287,12 @@ func (r *ReconcileCrash) crashContainer(crash *v1alpha1.Crash) error {
 		return nil
 	}
 
-	err = cli.ContainerKill(context.Background(), containers[0].ID, "KILL")
-	if err != nil {
-		return err
+	logger.Info("Killing pod containers")
+	for _, c := range containers {
+		err = cli.ContainerKill(context.Background(), c.ID, "KILL")
+		if err != nil {
+			return err
+		}
 	}
 
 	// Update the crash status to complete

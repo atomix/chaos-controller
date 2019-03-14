@@ -1,0 +1,7 @@
+apiVersion: chaos.atomix.io/v1alpha1
+kind: NetworkPartition
+metadata:
+  name: partition-raft-0-1
+spec:
+  podName: raft-group-0
+  sourceName: raft-group-1

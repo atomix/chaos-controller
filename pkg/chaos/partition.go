@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"math/rand"
 	"os/exec"
@@ -182,11 +183,7 @@ func (m *PartitionMonkey) createPartition(local v1.Pod, remote v1.Pod) error {
 	if err := controllerutil.SetControllerReference(m.monkey, partition, m.context.scheme); err != nil {
 		return err
 	}
-	if err := m.context.client.Create(context.TODO(), partition); err != nil {
-		return err
-	}
-	partition.Status.Phase = v1alpha1.PhaseStarted
-	return m.context.client.Status().Update(context.TODO(), partition)
+	return m.context.client.Create(context.TODO(), partition)
 }
 
 func (m *PartitionMonkey) delete(pods []v1.Pod) error {
@@ -218,6 +215,7 @@ func addPartitionController(mgr manager.Manager) error {
 		client: mgr.GetClient(),
 		scheme: mgr.GetScheme(),
 		config: mgr.GetConfig(),
+		kube:   kubernetes.NewForConfigOrDie(mgr.GetConfig()),
 	}
 
 	c, err := controller.New("partition", mgr, controller.Options{Reconciler: r})
@@ -242,13 +240,14 @@ type ReconcileNetworkPartition struct {
 	client client.Client
 	scheme *runtime.Scheme
 	config *rest.Config
+	kube   kubernetes.Interface
 }
 
 // Reconcile reads that state of the cluster for a ChaosMonkey object and makes changes based on the state read
 // and what is in the ChaosMonkey.Spec
 func (r *ReconcileNetworkPartition) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
-	reqLogger.Info("Reconciling ChaosMonkey")
+	logger := log.WithValues("namespace", request.Namespace, "name", request.Name)
+	logger.Info("Reconciling NetworkPartition")
 
 	// Fetch the NetworkPartition instance
 	instance := &v1alpha1.NetworkPartition{}
@@ -264,13 +263,27 @@ func (r *ReconcileNetworkPartition) Reconcile(request reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 
+	// If the partition has not yet been started, update the status.
+	if instance.Status.Phase == "" {
+		if err := r.setStarted(instance); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+
 	// If the partition is still running, attempt to partition the pod.
 	if instance.Status.Phase == v1alpha1.PhaseStarted {
+		logger.Info("Starting NetworkPartition")
 		err = r.partition(instance)
 	} else if instance.Status.Phase == v1alpha1.PhaseStopped {
+		logger.Info("Stopping NetworkPartition")
 		err = r.heal(instance)
 	}
 	return reconcile.Result{}, err
+}
+
+func (r *ReconcileNetworkPartition) setStarted(partition *v1alpha1.NetworkPartition) error {
+	partition.Status.Phase = v1alpha1.PhaseStarted
+	return r.client.Status().Update(context.TODO(), partition)
 }
 
 func (r *ReconcileNetworkPartition) setRunning(partition *v1alpha1.NetworkPartition) error {
@@ -291,12 +304,16 @@ func (r *ReconcileNetworkPartition) getNamespacedName(partition *v1alpha1.Networ
 }
 
 func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartition) error {
+	logger := log.WithValues("namespace", partition.Namespace, "name", partition.Name, "pod", partition.Spec.PodName, "source", partition.Spec.SourceName)
+
 	sourcePod := &v1.Pod{}
 	if err := r.client.Get(context.TODO(), types.NamespacedName{partition.Namespace, partition.Spec.SourceName}, sourcePod); err != nil {
+		logger.Error(err, "Could not find source pod")
 		return err
 	}
 
 	if sourcePod.Status.PodIP == "" {
+		logger.Info("Could not locate source IP")
 		return nil
 	}
 
@@ -304,12 +321,14 @@ func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartiti
 
 	ifaces, err := r.getInterfaces(partition)
 	if err != nil {
+		logger.Error(err, "Could not locate pod interfaces")
 		return err
 	}
 
 	for _, iface := range ifaces {
-		err = exec.Command("bash", "-c", "iptables -A INPUT -i "+iface+" -s "+sourceIp+" -j DROP -w -m comment --comment \""+partition.Name+"\"").Run()
+		_, err = r.exec("bash", "-c", "iptables -A INPUT -i "+iface+" -s "+sourceIp+" -j DROP -w -m comment --comment \""+partition.Name+"\"")
 		if err != nil {
+			logger.Error(err, "Failed to partition pod")
 			return err
 		}
 	}
@@ -356,8 +375,13 @@ func (r *ReconcileNetworkPartition) heal(partition *v1alpha1.NetworkPartition) e
 }
 
 func (r *ReconcileNetworkPartition) delete(name types.NamespacedName) error {
+	logger := log.WithValues("namespace", name.Namespace, "name", name.Name)
 	_, err := r.exec("bash", "-c", "iptables -D INPUT $(iptables -L INPUT --line-number | grep "+name.String()+" | awk '{print $1}')")
-	return err
+	if err != nil {
+		logger.Error(err, "Failed to heal partition")
+		return err
+	}
+	return nil
 }
 
 func (r *ReconcileNetworkPartition) exec(command string, args ...string) (string, error) {
