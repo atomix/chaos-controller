@@ -122,7 +122,7 @@ func (m *StressMonkey) delete(pods []v1.Pod) error {
 
 // addStressController adds a Stress resource controller to the given controller
 func addStressController(mgr manager.Manager) error {
-	r := &ReconcileNetworkPartition{
+	r := &ReconcileStress{
 		client: mgr.GetClient(),
 		scheme: mgr.GetScheme(),
 		config: mgr.GetConfig(),
@@ -157,8 +157,8 @@ type ReconcileStress struct {
 // Reconcile reads that state of the cluster for a Stress object and makes changes based on the state read
 // and what is in the ChaosMonkey.Spec
 func (r *ReconcileStress) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
-	reqLogger.Info("Reconciling ChaosMonkey")
+	logger := log.WithValues("namespace", request.Namespace, "name", request.Name)
+	logger.Info("Reconciling Stress")
 
 	// Fetch the Stress instance
 	instance := &v1alpha1.Stress{}
@@ -222,28 +222,40 @@ func (r *ReconcileStress) getLocalPod(stress *v1alpha1.Stress) (*v1.Pod, error) 
 }
 
 func (r *ReconcileStress) stress(stress *v1alpha1.Stress) error {
+	logger := log.WithValues("namespace", stress.Namespace, "name", stress.Name, "pod", stress.Spec.PodName)
+
 	if stress.Spec.IO != nil {
+		logger.Info("Stressing I/O")
 		if err := r.stressIo(stress); err != nil {
+			logger.Error(err, "Failed to stress I/O")
 			return err
 		}
 	}
 	if stress.Spec.CPU != nil {
+		logger.Info("Stressing CPU")
 		if err := r.stressCpu(stress); err != nil {
+			logger.Error(err, "Failed to stress CPU")
 			return err
 		}
 	}
 	if stress.Spec.Memory != nil {
+		logger.Info("Stressing memory")
 		if err := r.stressMemory(stress); err != nil {
+			logger.Error(err, "Failed to stress memory")
 			return err
 		}
 	}
 	if stress.Spec.HDD != nil {
+		logger.Info("Stressing HDD")
 		if err := r.stressHdd(stress); err != nil {
+			logger.Error(err, "Failed to stress HDD")
 			return err
 		}
 	}
 	if stress.Spec.Network != nil {
+		logger.Info("Stressing network")
 		if err := r.stressNetwork(stress); err != nil {
+			logger.Error(err, "Failed to stress network")
 			return err
 		}
 	}
