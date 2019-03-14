@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
-	"github.com/atomix/chaos-controller/pkg/chaos"
+	"github.com/atomix/chaos-controller/pkg/worker"
 	"github.com/operator-framework/operator-sdk/pkg/ready"
 	"os"
 	"runtime"
@@ -74,7 +74,7 @@ func main() {
 	}
 
 	// Setup all Controllers
-	if err := chaos.AddControllers(mgr); err != nil {
+	if err := worker.AddControllers(mgr); err != nil {
 		log.Error(err, "")
 		os.Exit(1)
 	}
