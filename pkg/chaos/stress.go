@@ -353,7 +353,7 @@ func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) 
 	hostConfig := &container.HostConfig{
 		NetworkMode: "host",
 		Privileged:  true,
-		PidMode:     container.PidMode(fmt.Sprintf("container:%s", containers[0].ID)),
+		PidMode:     container.PidMode(fmt.Sprintf("container:%s", pauseContainer.ID)),
 	}
 
 	networkingConfig := &network.NetworkingConfig{}
