@@ -10,6 +10,7 @@ spec:
     matchLabels:
       app: atomix
       cluster: example-atomixcluster
+      group: raft-group
   partition:
     partitionStrategy:
       type: Isolate

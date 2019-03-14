@@ -14,15 +14,17 @@ spec:
     spec:
       serviceAccountName: chaos-controller
       securityContext:
+        runAsUser: 0
         fsGroup: 999
-        privileged: true
       hostNetwork: true
       containers:
         - name: chaos-worker
           # Replace this with the built image name
           image: atomix/chaos-worker
           command:
-          - chaos-worker
+            - chaos-worker
+          securityContext:
+            privileged: true
           imagePullPolicy: Always
           readinessProbe:
             exec:

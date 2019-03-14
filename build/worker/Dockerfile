@@ -2,7 +2,7 @@ FROM docker
 
 RUN apk upgrade --update --no-cache
 
-RUN apk add iptables
+RUN apk add iptables bash
 
 USER nobody
 

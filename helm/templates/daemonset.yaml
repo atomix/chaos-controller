@@ -16,15 +16,17 @@ spec:
     spec:
       serviceAccountName: {{ template "fullname" . }}
       securityContext:
+        runAsUser: 0
         fsGroup: 999
-        privileged: true
       hostNetwork: true
       containers:
         - name: {{ .Chart.Name }}-worker
           image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
           imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
           command:
-          - chaos-worker
+            - chaos-worker
+          securityContext:
+            privileged: true
           readinessProbe:
             exec:
               command:

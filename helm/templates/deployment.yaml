@@ -1,5 +1,5 @@
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
   name: {{ template "fullname" . }}
   chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
@@ -16,10 +16,6 @@ spec:
         name: {{ template "fullname" . }}
     spec:
       serviceAccountName: {{ template "fullname" . }}
-      securityContext:
-        fsGroup: 999
-        privileged: true
-      hostNetwork: true
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"

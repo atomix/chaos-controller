@@ -326,7 +326,7 @@ func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartiti
 	}
 
 	for _, iface := range ifaces {
-		_, err = r.exec("bash", "-c", "iptables -A INPUT -i "+iface+" -s "+sourceIp+" -j DROP -w -m comment --comment \""+partition.Name+"\"")
+		_, err = r.exec("bash", "-c", "iptables -A INPUT -i "+iface+" -s "+sourceIp+" -j DROP -w -m comment --comment \""+r.getNamespacedName(partition).String()+"\"")
 		if err != nil {
 			logger.Error(err, "Failed to partition pod")
 			return err
@@ -358,7 +358,7 @@ func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPar
 			return nil, err
 		}
 
-		iface, err := r.exec("bash", "-c", "ip addr | grep \""+ifindex+":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'")
+		iface, err := r.exec("bash", "-c", "ip addr | grep \""+ifindex+":\" | cut -d \":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'")
 		if err != nil {
 			return nil, err
 		}
