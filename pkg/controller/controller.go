@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"math/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -422,18 +423,26 @@ type MonkeyHandler interface {
 // NilMonkey is an invalid chaos monkey handler.
 type NilMonkey struct{}
 
+// create performs a no-op create.
 func (m *NilMonkey) create(pods []v1.Pod) error {
 	return nil
 }
 
+// delete performs a no-op delete.
 func (m *NilMonkey) delete(pods []v1.Pod) error {
 	return nil
 }
 
+// getLabels returns a set of labels for the given ChaosMonkey with the given time.
 func getLabels(monkey *v1alpha1.ChaosMonkey, time time.Time) map[string]string {
 	return map[string]string{
 		AppLabel:        "chaos-controller",
 		MonkeyLabel:     monkey.Name,
 		MonkeyHashLabel: util.ComputeHash(time),
 	}
+}
+
+// selectRandomPod selects a random pod from the given slice.
+func selectRandomPod(pods []v1.Pod) v1.Pod {
+	return pods[rand.Intn(len(pods))]
 }

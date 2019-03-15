@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"math/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
@@ -56,15 +55,10 @@ func (m *CrashMonkey) getNamespacedName(pod v1.Pod) types.NamespacedName {
 	}
 }
 
-// selectRandom selects a random pod from the given slice.
-func selectRandom(pods []v1.Pod) v1.Pod {
-	return pods[rand.Intn(len(pods))]
-}
-
 // create selects pods and creates Crash resources for the monkey.
 func (m *CrashMonkey) create(pods []v1.Pod) error {
 	// Select a random pod to crash.
-	pod := selectRandom(pods)
+	pod := selectRandomPod(pods)
 
 	// Create a Crash resource for the selected pod.
 	crash := &v1alpha1.Crash{

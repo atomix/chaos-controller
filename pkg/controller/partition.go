@@ -25,26 +25,29 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"math/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 )
 
+// PartitionMonkey manages NetworkPartition resources in the cluster.
 type PartitionMonkey struct {
 	context Context
 	monkey  *v1alpha1.ChaosMonkey
 	time    time.Time
 }
 
+// getHash returns a unique-ish hash for the monkey.
 func (m *PartitionMonkey) getHash() string {
 	return util.ComputeHash(m.time)
 }
 
+// getPartitionName returns a unique-ish name for the monkey.
 func (m *PartitionMonkey) getPartitionName(local v1.Pod, remote v1.Pod) string {
 	return fmt.Sprintf("%s-%s", m.monkey.Name, util.ComputeHash(local.Name, remote.Name, m.time))
 }
 
+// getNamespacedName returns a NamespacedName for the monkey.
 func (m *PartitionMonkey) getNamespacedName(local v1.Pod, remote v1.Pod) types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: m.monkey.Namespace,
@@ -52,6 +55,7 @@ func (m *PartitionMonkey) getNamespacedName(local v1.Pod, remote v1.Pod) types.N
 	}
 }
 
+// create selects pods and creates NetworkPartition resources for the monkey.
 func (m *PartitionMonkey) create(pods []v1.Pod) error {
 	switch m.monkey.Spec.Partition.PartitionStrategy.Type {
 	case v1alpha1.PartitionIsolate:
@@ -65,38 +69,28 @@ func (m *PartitionMonkey) create(pods []v1.Pod) error {
 	}
 }
 
+// createIsolate selects a random pod and creates a network partition between the pod
+// and all other pods in the set.
 func (m *PartitionMonkey) createIsolate(pods []v1.Pod) error {
 	// Select a random pod to isolate.
-	local := pods[rand.Intn(len(pods))]
+	local := selectRandomPod(pods)
 
 	// Iterate through all pods and isolate the local pod from all remote pods.
-	for _, remote := range pods {
-		if remote.Name != local.Name {
-			err := m.createPartition(local, remote)
-			if err != nil {
-				return err
-			}
-
-			err = m.createPartition(remote, local)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return m.bipartitionAll(pods, []v1.Pod{local})
 }
 
+// createBridge splits the set of pods into two partitions, selecting a random pod
+// to maintain communication with both partitions.
 func (m *PartitionMonkey) createBridge(pods []v1.Pod) error {
 	// Choose a random pod to isolate.
-	bridgeIdx := rand.Intn(len(pods))
-	bridge := pods[bridgeIdx]
+	bridge := selectRandomPod(pods)
 
 	log.Info("Bridging pod", "pod", bridge.Name, "namespace", bridge.Namespace)
 
 	// Split the rest of the nodes into two halves.
 	leftPods, rightPods := []v1.Pod{}, []v1.Pod{}
 	for i, pod := range pods {
-		if i != bridgeIdx {
+		if pod.Name != bridge.Name {
 			if i%2 == 0 {
 				leftPods = append(leftPods, pod)
 			} else {
@@ -106,24 +100,11 @@ func (m *PartitionMonkey) createBridge(pods []v1.Pod) error {
 	}
 
 	// Iterate through both the left and right partitions and partition the nodes from each other.
-	for _, leftPod := range leftPods {
-		for _, rightPod := range rightPods {
-			// Create a partition on the left pod from the right pod.
-			err := m.createPartition(leftPod, rightPod)
-			if err != nil {
-				return err
-			}
-
-			// Create a partition on the right pod from the left pod.
-			err = m.createPartition(rightPod, leftPod)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return m.bipartitionAll(leftPods, rightPods)
 }
 
+// createHalves splits the set of pods into two partitions, cutting off communication
+// across the partitions.
 func (m *PartitionMonkey) createHalves(pods []v1.Pod) error {
 	// Split the set of pods into two halves.
 	leftPods, rightPods := []v1.Pod{}, []v1.Pod{}
@@ -136,27 +117,40 @@ func (m *PartitionMonkey) createHalves(pods []v1.Pod) error {
 	}
 
 	log.Info("Partitioning cluster into halves")
+	return m.bipartitionAll(leftPods, rightPods)
+}
 
-	// Iterate through both the left and right partitions and partition the nodes from each other.
+// bipartitionAll creates a partition on each of the left and right pods from each other.
+func (m *PartitionMonkey) bipartitionAll(leftPods []v1.Pod, rightPods []v1.Pod) error {
 	for _, leftPod := range leftPods {
 		for _, rightPod := range rightPods {
-			// Create a partition on the left pod from the right pod.
-			err := m.createPartition(leftPod, rightPod)
-			if err != nil {
-				return err
-			}
-
-			// Create a partition on the right pod from the left pod.
-			err = m.createPartition(rightPod, leftPod)
-			if err != nil {
-				return err
+			if leftPod.Name != rightPod.Name {
+				if err := m.bipartition(leftPod, rightPod); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	return nil
 }
 
+// bipartition creates a partition on both the left and the right pod.
+func (m *PartitionMonkey) bipartition(left v1.Pod, right v1.Pod) error {
+	// Create a partition on the left pod from the right pod.
+	if err := m.createPartition(left, right); err != nil {
+		return err
+	}
+
+	// Create a partition on the right pod from the left pod.
+	if err := m.createPartition(right, left); err != nil {
+		return err
+	}
+	return nil
+}
+
+// createPartition creates a NetworkPartition on the local pod from the remote pod.
 func (m *PartitionMonkey) createPartition(local v1.Pod, remote v1.Pod) error {
+	// Create and label the NetworkPartition.
 	partition := &v1alpha1.NetworkPartition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.getPartitionName(local, remote),
@@ -168,12 +162,17 @@ func (m *PartitionMonkey) createPartition(local v1.Pod, remote v1.Pod) error {
 			SourceName: remote.Name,
 		},
 	}
+
+	// Set the ChaosMonkey as the owner of the NetworkPartition and create the resource.
 	if err := controllerutil.SetControllerReference(m.monkey, partition, m.context.scheme); err != nil {
 		return err
 	}
 	return m.context.client.Create(context.TODO(), partition)
 }
 
+// delete stops all partitions for the selected pods.
+// delete does not delete the created NetworkPartition resources. Instead, the resource
+// Phase is updated to PhaseStopped.
 func (m *PartitionMonkey) delete(pods []v1.Pod) error {
 	// Create list options from the labels assigned to partitions by this monkey.
 	listOptions := client.ListOptions{

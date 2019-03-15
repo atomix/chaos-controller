@@ -31,20 +31,24 @@ import (
 	"time"
 )
 
+// StressMonkey manages Stress resources in the cluster.
 type StressMonkey struct {
 	context Context
 	monkey  *v1alpha1.ChaosMonkey
 	time    time.Time
 }
 
+// getHash returns a unique-ish hash for the monkey.
 func (m *StressMonkey) getHash() string {
 	return util.ComputeHash(m.time)
 }
 
+// getStressName returns a unique-ish name for the monkey.
 func (m *StressMonkey) getStressName(pod v1.Pod) string {
 	return fmt.Sprintf("%s-%s", m.monkey.Name, util.ComputeHash(pod.Name, m.time))
 }
 
+// getNamespacedName returns a NamespacedName for the monkey.
 func (m *StressMonkey) getNamespacedName(pod v1.Pod) types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: m.monkey.Namespace,
@@ -52,6 +56,8 @@ func (m *StressMonkey) getNamespacedName(pod v1.Pod) types.NamespacedName {
 	}
 }
 
+// create selects pods according to the StressStrategy and creates Stress
+// resources for the pods.
 func (m *StressMonkey) create(pods []v1.Pod) error {
 	var selected []v1.Pod
 	if m.monkey.Spec.Stress.StressStrategy.Type == v1alpha1.StressRandom {
@@ -84,6 +90,9 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 	return nil
 }
 
+// delete stops all stresses for the selected pods.
+// delete does not delete the created Stress resources. Instead, the resource Phase is updated
+// to PhaseStopped.
 func (m *StressMonkey) delete(pods []v1.Pod) error {
 	// Create list options from the labels assigned to stresses by this monkey.
 	listOptions := client.ListOptions{
