@@ -17,12 +17,7 @@
 package worker
 
 import (
-	"bytes"
 	"context"
-	"docker.io/go-docker"
-	dockertypes "docker.io/go-docker/api/types"
-	"docker.io/go-docker/api/types/filters"
-	"fmt"
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -30,14 +25,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"os/exec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"strings"
 )
 
 // addPartitionController adds a Crash resource controller to the given controller
@@ -133,6 +126,14 @@ func (r *ReconcileNetworkPartition) setComplete(partition *v1alpha1.NetworkParti
 	return r.setStatus(partition, v1alpha1.PhaseComplete)
 }
 
+// getPodName returns the namespaced name of the pod to which to apply the given NetworkPartition.
+func (r *ReconcileNetworkPartition) getPodName(partition *v1alpha1.NetworkPartition) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: partition.Namespace,
+		Name:      partition.Spec.PodName,
+	}
+}
+
 // getNamespacedName returns the NamespacedName for the given NetworkPartition.
 func (r *ReconcileNetworkPartition) getNamespacedName(partition *v1alpha1.NetworkPartition) types.NamespacedName {
 	return types.NamespacedName{
@@ -161,7 +162,7 @@ func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartiti
 
 	sourceIp := sourcePod.Status.PodIP
 
-	ifaces, err := r.getInterfaces(partition)
+	ifaces, err := getInterfaces(r.getPodName(partition))
 	if err != nil {
 		logger.Error(err, "Could not locate pod interfaces")
 		return err
@@ -170,58 +171,13 @@ func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartiti
 	for _, iface := range ifaces {
 		cmd := "iptables -A INPUT -i "+iface+" -s "+sourceIp+" -j DROP -w -m comment --comment \""+r.getNamespacedName(partition).String()+"\""
 		logger.Info("Executing command", "command", cmd)
-		_, err = r.exec("bash", "-c", cmd)
+		_, err = execCommand("bash", "-c", cmd)
 		if err != nil {
 			logger.Error(err, "Failed to partition pod")
 			return err
 		}
 	}
 	return r.setRunning(partition)
-}
-
-// getInterfaces returns the virtual interfaces attached to each container in the pod
-// to which the given NetworkPartition refers.
-func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPartition) ([]string, error) {
-	// Create a new Docker client.
-	cli, err := docker.NewEnvClient()
-	if err != nil {
-		return nil, err
-	}
-
-	// Get a list of Docker containers running in the pod.
-	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.name", partition.Spec.PodName)),
-			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.namespace", partition.Namespace)),
-		),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// For each container, find the virtual interface connecting the container to the host.
-	var ifaces []string
-	for _, c := range containers {
-		// Get the index of the container's virtual interface.
-		cmd := "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2"
-		ifindex, err := r.exec("bash", "-c", cmd)
-		if err != nil {
-			return nil, err
-		} else if ifindex == "" {
-			continue
-		}
-
-		// List the host's interfaces and find the name of the virtual interface used by the container.
-		cmd = "ip addr | grep \""+strings.TrimSuffix(ifindex, "\n")+":\" | cut -d \":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'"
-		iface, err := r.exec("bash", "-c", cmd)
-		if err != nil {
-			return nil, err
-		} else if iface == "" {
-			continue
-		}
-		ifaces = append(ifaces, iface)
-	}
-	return ifaces, nil
 }
 
 // heal removes firewall rules for the given NetworkPartition.
@@ -239,22 +195,10 @@ func (r *ReconcileNetworkPartition) delete(name types.NamespacedName) error {
 	logger := log.WithValues("namespace", name.Namespace, "name", name.Name)
 	cmd := "iptables -D INPUT $(iptables -L INPUT --line-number | grep \""+name.String()+"\" | awk '{print $1}')"
 	logger.Info("Executing command", "command", cmd)
-	_, err := r.exec("bash", "-c", cmd)
+	_, err := execCommand("bash", "-c", cmd)
 	if err != nil {
 		logger.Error(err, "Failed to heal partition")
 		return err
 	}
 	return nil
-}
-
-// exec executes a shell command on the host and returns the output.
-func (r *ReconcileNetworkPartition) exec(command string, args ...string) (string, error) {
-	stdout := bytes.Buffer{}
-	cmd := exec.Command(command, args...)
-	cmd.Stdout = &stdout
-	err := cmd.Run()
-	if err != nil {
-		return "", err
-	}
-	return stdout.String(), nil
 }

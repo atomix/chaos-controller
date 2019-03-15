@@ -17,7 +17,6 @@
 package worker
 
 import (
-	"bytes"
 	"context"
 	"docker.io/go-docker"
 	dockertypes "docker.io/go-docker/api/types"
@@ -33,7 +32,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"os"
-	"os/exec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -134,12 +132,20 @@ func (r *ReconcileStress) setComplete(stress *v1alpha1.Stress) error {
 	return r.setStatus(stress, v1alpha1.PhaseComplete)
 }
 
+// getPodName returns the namespaced name of the pod to which to apply the given Stress.
+func (r *ReconcileStress) getPodName(stress *v1alpha1.Stress) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: stress.Namespace,
+		Name:      stress.Spec.PodName,
+	}
+}
+
 // getLocalPod returns the Pod to which the given Stress refers if the pod is
 // running on the local node, otherwise nil.
 func (r *ReconcileStress) getLocalPod(stress *v1alpha1.Stress) (*v1.Pod, error) {
 	// Get the pod to determine whether the pod is running on this node
 	pod := &v1.Pod{}
-	err := r.client.Get(context.TODO(), types.NamespacedName{stress.Namespace, stress.Spec.PodName}, pod)
+	err := r.client.Get(context.TODO(), r.getPodName(stress), pod)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +226,7 @@ func (r *ReconcileStress) stressHdd(stress *v1alpha1.Stress) error {
 
 // stressNetwork creates traffic control rules for the stressed pod's containers on the host.
 func (r *ReconcileStress) stressNetwork(stress *v1alpha1.Stress) error {
-	ifaces, err := r.getInterfaces(stress)
+	ifaces, err := getInterfaces(r.getPodName(stress))
 	if err != nil {
 		return err
 	}
@@ -242,7 +248,7 @@ func (r *ReconcileStress) stressNetwork(stress *v1alpha1.Stress) error {
 			}
 		}
 
-		_, err := r.exec("bash", "-c", strings.Join(args, " "))
+		_, err := execCommand("bash", "-c", strings.Join(args, " "))
 		if err != nil {
 			return err
 		}
@@ -325,7 +331,7 @@ func (r *ReconcileStress) destressContainers(stress *v1alpha1.Stress) error {
 
 // destressNetwork restores traffic control for the given Stress pod.
 func (r *ReconcileStress) destressNetwork(stress *v1alpha1.Stress) error {
-	ifaces, err := r.getInterfaces(stress)
+	ifaces, err := getInterfaces(r.getPodName(stress))
 	if err != nil {
 		return err
 	}
@@ -347,7 +353,7 @@ func (r *ReconcileStress) destressNetwork(stress *v1alpha1.Stress) error {
 			}
 		}
 
-		_, err := r.exec("bash", "-c", strings.Join(args, " "))
+		_, err := execCommand("bash", "-c", strings.Join(args, " "))
 		if err != nil {
 			return err
 		}
@@ -387,56 +393,4 @@ func (r *ReconcileStress) cancelContainers(name types.NamespacedName) error {
 		}
 	}
 	return nil
-}
-
-// getInterfaces returns the virtual interfaces attached to each container in the pod
-// to which the given Stress refers.
-func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, error) {
-	cli, err := docker.NewEnvClient()
-	if err != nil {
-		return nil, err
-	}
-
-	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.name", stress.Spec.PodName)),
-			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.namespace", stress.Namespace)),
-		),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var ifaces []string
-	for _, c := range containers {
-		cmd := "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2"
-		ifindex, err := r.exec("bash", "-c", cmd)
-		if err != nil {
-			return nil, err
-		} else if ifindex == "" {
-			continue
-		}
-
-		cmd = "ip addr | grep \""+strings.TrimSuffix(ifindex, "\n")+":\" | cut -d \":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'"
-		iface, err := r.exec("bash", "-c", cmd)
-		if err != nil {
-			return nil, err
-		} else if iface == "" {
-			continue
-		}
-		ifaces = append(ifaces, iface)
-	}
-	return ifaces, nil
-}
-
-// exec executes a shell command on the host and returns the output.
-func (r *ReconcileStress) exec(command string, args ...string) (string, error) {
-	stdout := bytes.Buffer{}
-	cmd := exec.Command(command, args...)
-	cmd.Stdout = &stdout
-	err := cmd.Run()
-	if err != nil {
-		return "", err
-	}
-	return stdout.String(), nil
 }
