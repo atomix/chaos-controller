@@ -26,20 +26,14 @@ var log = logf.Log.WithName("chaos_controller")
 // Add creates a new ChaosMonkey Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func AddControllers(mgr manager.Manager) error {
-	err := addCrashController(mgr)
-	if err != nil {
+	if err := addCrashController(mgr); err != nil {
 		return err
 	}
-
-	err = addPartitionController(mgr)
-	if err != nil {
+	if err := addPartitionController(mgr); err != nil {
 		return err
 	}
-
-	err = addStressController(mgr)
-	if err != nil {
+	if err := addStressController(mgr); err != nil {
 		return err
 	}
-
 	return nil
 }

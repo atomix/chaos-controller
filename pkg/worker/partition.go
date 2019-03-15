@@ -112,21 +112,28 @@ func (r *ReconcileNetworkPartition) Reconcile(request reconcile.Request) (reconc
 	return reconcile.Result{}, err
 }
 
+// setStatus sets the given NetworkPartition Phase to the given phase.
+func (r *ReconcileNetworkPartition) setStatus(partition *v1alpha1.NetworkPartition, phase v1alpha1.Phase) error {
+	partition.Status.Phase = phase
+	return r.client.Status().Update(context.TODO(), partition)
+}
+
+// setStarted sets the given NetworkPartition Phase to Started.
 func (r *ReconcileNetworkPartition) setStarted(partition *v1alpha1.NetworkPartition) error {
-	partition.Status.Phase = v1alpha1.PhaseStarted
-	return r.client.Status().Update(context.TODO(), partition)
+	return r.setStatus(partition, v1alpha1.PhaseStarted)
 }
 
+// setRunning sets the given NetworkPartition Phase to Running.
 func (r *ReconcileNetworkPartition) setRunning(partition *v1alpha1.NetworkPartition) error {
-	partition.Status.Phase = v1alpha1.PhaseRunning
-	return r.client.Status().Update(context.TODO(), partition)
+	return r.setStatus(partition, v1alpha1.PhaseRunning)
 }
 
+// setRunning sets the given NetworkPartition Phase to Complete.
 func (r *ReconcileNetworkPartition) setComplete(partition *v1alpha1.NetworkPartition) error {
-	partition.Status.Phase = v1alpha1.PhaseComplete
-	return r.client.Status().Update(context.TODO(), partition)
+	return r.setStatus(partition, v1alpha1.PhaseComplete)
 }
 
+// getNamespacedName returns the NamespacedName for the given NetworkPartition.
 func (r *ReconcileNetworkPartition) getNamespacedName(partition *v1alpha1.NetworkPartition) types.NamespacedName {
 	return types.NamespacedName{
 		Namespace: partition.Namespace,
@@ -134,6 +141,10 @@ func (r *ReconcileNetworkPartition) getNamespacedName(partition *v1alpha1.Networ
 	}
 }
 
+// partition executes the given NetworkPartition.
+// The NetworkPartition is executed by locating each of the containers running in the pod
+// and finding the veth pair for each of the containers. Firewall rules are created on the
+// host blocking traffic on the virtual interface from the source pod's IP.
 func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartition) error {
 	logger := log.WithValues("namespace", partition.Namespace, "name", partition.Name, "pod", partition.Spec.PodName, "source", partition.Spec.SourceName)
 
@@ -168,12 +179,16 @@ func (r *ReconcileNetworkPartition) partition(partition *v1alpha1.NetworkPartiti
 	return r.setRunning(partition)
 }
 
+// getInterfaces returns the virtual interfaces attached to each container in the pod
+// to which the given NetworkPartition refers.
 func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPartition) ([]string, error) {
+	// Create a new Docker client.
 	cli, err := docker.NewEnvClient()
 	if err != nil {
 		return nil, err
 	}
 
+	// Get a list of Docker containers running in the pod.
 	containers, err := cli.ContainerList(context.Background(), dockertypes.ContainerListOptions{
 		Filters: filters.NewArgs(
 			filters.Arg("label", fmt.Sprintf("%s=%s", "io.kubernetes.pod.name", partition.Spec.PodName)),
@@ -184,8 +199,10 @@ func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPar
 		return nil, err
 	}
 
+	// For each container, find the virtual interface connecting the container to the host.
 	var ifaces []string
 	for _, c := range containers {
+		// Get the index of the container's virtual interface.
 		cmd := "grep ^ /sys/class/net/vet*/ifindex | grep \":$(docker exec "+c.ID+" cat /sys/class/net/eth0/iflink)\" | cut -d \":\" -f 2"
 		ifindex, err := r.exec("bash", "-c", cmd)
 		if err != nil {
@@ -194,6 +211,7 @@ func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPar
 			continue
 		}
 
+		// List the host's interfaces and find the name of the virtual interface used by the container.
 		cmd = "ip addr | grep \""+strings.TrimSuffix(ifindex, "\n")+":\" | cut -d \":\" -f 2 | cut -d \"@\" -f 1 | tr -d '[:space:]'"
 		iface, err := r.exec("bash", "-c", cmd)
 		if err != nil {
@@ -206,6 +224,7 @@ func (r *ReconcileNetworkPartition) getInterfaces(partition *v1alpha1.NetworkPar
 	return ifaces, nil
 }
 
+// heal removes firewall rules for the given NetworkPartition.
 func (r *ReconcileNetworkPartition) heal(partition *v1alpha1.NetworkPartition) error {
 	if err := r.delete(r.getNamespacedName(partition)); err != nil {
 		return err
@@ -213,6 +232,9 @@ func (r *ReconcileNetworkPartition) heal(partition *v1alpha1.NetworkPartition) e
 	return r.setComplete(partition)
 }
 
+// delete removes firewall rules for the partition with the given name.
+// Firewall rules include a comment indicating the NetworkPartition's NamespacedName,
+// so to delete the rules we simply delete all rules with that comment.
 func (r *ReconcileNetworkPartition) delete(name types.NamespacedName) error {
 	logger := log.WithValues("namespace", name.Namespace, "name", name.Name)
 	cmd := "iptables -D INPUT $(iptables -L INPUT --line-number | grep \""+name.String()+"\" | awk '{print $1}')"
@@ -225,6 +247,7 @@ func (r *ReconcileNetworkPartition) delete(name types.NamespacedName) error {
 	return nil
 }
 
+// exec executes a shell command on the host and returns the output.
 func (r *ReconcileNetworkPartition) exec(command string, args ...string) (string, error) {
 	stdout := bytes.Buffer{}
 	cmd := exec.Command(command, args...)

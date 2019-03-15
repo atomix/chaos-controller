@@ -113,21 +113,29 @@ func (r *ReconcileStress) Reconcile(request reconcile.Request) (reconcile.Result
 	return reconcile.Result{}, err
 }
 
+// setStatus sets the given Stress Phase to the given phase.
+func (r *ReconcileStress) setStatus(stress *v1alpha1.Stress, phase v1alpha1.Phase) error {
+	stress.Status.Phase = phase
+	return r.client.Status().Update(context.TODO(), stress)
+}
+
+// setStarted sets the given Stress Phase to Started.
 func (r *ReconcileStress) setStarted(stress *v1alpha1.Stress) error {
-	stress.Status.Phase = v1alpha1.PhaseStarted
-	return r.client.Status().Update(context.TODO(), stress)
+	return r.setStatus(stress, v1alpha1.PhaseStarted)
 }
 
+// setRunning sets the given Stress Phase to Running.
 func (r *ReconcileStress) setRunning(stress *v1alpha1.Stress) error {
-	stress.Status.Phase = v1alpha1.PhaseRunning
-	return r.client.Status().Update(context.TODO(), stress)
+	return r.setStatus(stress, v1alpha1.PhaseRunning)
 }
 
+// setRunning sets the given Stress Phase to Complete.
 func (r *ReconcileStress) setComplete(stress *v1alpha1.Stress) error {
-	stress.Status.Phase = v1alpha1.PhaseComplete
-	return r.client.Status().Update(context.TODO(), stress)
+	return r.setStatus(stress, v1alpha1.PhaseComplete)
 }
 
+// getLocalPod returns the Pod to which the given Stress refers if the pod is
+// running on the local node, otherwise nil.
 func (r *ReconcileStress) getLocalPod(stress *v1alpha1.Stress) (*v1.Pod, error) {
 	// Get the pod to determine whether the pod is running on this node
 	pod := &v1.Pod{}
@@ -144,6 +152,7 @@ func (r *ReconcileStress) getLocalPod(stress *v1alpha1.Stress) (*v1.Pod, error) 
 	return pod, nil
 }
 
+// stress executes the stress function on the local node.
 func (r *ReconcileStress) stress(stress *v1alpha1.Stress) error {
 	logger := log.WithValues("namespace", stress.Namespace, "name", stress.Name, "pod", stress.Spec.PodName)
 
@@ -185,26 +194,31 @@ func (r *ReconcileStress) stress(stress *v1alpha1.Stress) error {
 	return r.setRunning(stress)
 }
 
+// stressIo creates a stress container spinning on I/O.
 func (r *ReconcileStress) stressIo(stress *v1alpha1.Stress) error {
 	args := []string{"--io", fmt.Sprintf("%d", *stress.Spec.IO.Workers)}
 	return r.execStress(stress, args)
 }
 
+// stressCpu creates a stress container spinning on CPU.
 func (r *ReconcileStress) stressCpu(stress *v1alpha1.Stress) error {
 	args := []string{"--cpu", fmt.Sprintf("%d", *stress.Spec.CPU.Workers)}
 	return r.execStress(stress, args)
 }
 
+// stressMemory creates a stress container spinning on allocating/deallocating memory.
 func (r *ReconcileStress) stressMemory(stress *v1alpha1.Stress) error {
 	args := []string{"--vm", fmt.Sprintf("%d", *stress.Spec.Memory.Workers)}
 	return r.execStress(stress, args)
 }
 
+// stressHdd creates a stress container spinning on HDD.
 func (r *ReconcileStress) stressHdd(stress *v1alpha1.Stress) error {
 	args := []string{"--hdd", fmt.Sprintf("%d", *stress.Spec.HDD.Workers)}
 	return r.execStress(stress, args)
 }
 
+// stressNetwork creates traffic control rules for the stressed pod's containers on the host.
 func (r *ReconcileStress) stressNetwork(stress *v1alpha1.Stress) error {
 	ifaces, err := r.getInterfaces(stress)
 	if err != nil {
@@ -236,6 +250,7 @@ func (r *ReconcileStress) stressNetwork(stress *v1alpha1.Stress) error {
 	return nil
 }
 
+// execStress creates and runs a stress container using the given command.
 func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) error {
 	cli, err := docker.NewEnvClient()
 	if err != nil {
@@ -289,6 +304,7 @@ func (r *ReconcileStress) execStress(stress *v1alpha1.Stress, command []string) 
 	return cli.ContainerStart(context.Background(), create.ID, dockertypes.ContainerStartOptions{})
 }
 
+// destress stops stress containers and restores traffic to the given Stress's pod.
 func (r *ReconcileStress) destress(stress *v1alpha1.Stress) error {
 	if err := r.destressContainers(stress); err != nil {
 		return err
@@ -299,6 +315,7 @@ func (r *ReconcileStress) destress(stress *v1alpha1.Stress) error {
 	return r.setComplete(stress)
 }
 
+// destressContainers stops stress containers for the given Stress.
 func (r *ReconcileStress) destressContainers(stress *v1alpha1.Stress) error {
 	return r.cancelContainers(types.NamespacedName{
 		Namespace: stress.Namespace,
@@ -306,6 +323,7 @@ func (r *ReconcileStress) destressContainers(stress *v1alpha1.Stress) error {
 	})
 }
 
+// destressNetwork restores traffic control for the given Stress pod.
 func (r *ReconcileStress) destressNetwork(stress *v1alpha1.Stress) error {
 	ifaces, err := r.getInterfaces(stress)
 	if err != nil {
@@ -337,10 +355,12 @@ func (r *ReconcileStress) destressNetwork(stress *v1alpha1.Stress) error {
 	return nil
 }
 
+// cancel stops stress containers created by the given Stress.
 func (r *ReconcileStress) cancel(name types.NamespacedName) error {
 	return r.cancelContainers(name)
 }
 
+// cancelContainers stops stress containers created by the given Stress.
 func (r *ReconcileStress) cancelContainers(name types.NamespacedName) error {
 	cli, err := docker.NewEnvClient()
 	if err != nil {
@@ -369,6 +389,8 @@ func (r *ReconcileStress) cancelContainers(name types.NamespacedName) error {
 	return nil
 }
 
+// getInterfaces returns the virtual interfaces attached to each container in the pod
+// to which the given Stress refers.
 func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, error) {
 	cli, err := docker.NewEnvClient()
 	if err != nil {
@@ -407,6 +429,7 @@ func (r *ReconcileStress) getInterfaces(stress *v1alpha1.Stress) ([]string, erro
 	return ifaces, nil
 }
 
+// exec executes a shell command on the host and returns the output.
 func (r *ReconcileStress) exec(command string, args ...string) (string, error) {
 	stdout := bytes.Buffer{}
 	cmd := exec.Command(command, args...)

@@ -106,6 +106,7 @@ func (r *ReconcileCrash) Reconcile(request reconcile.Request) (reconcile.Result,
 	return reconcile.Result{}, err
 }
 
+// crash executes the given Crash function.
 func (r *ReconcileCrash) crash(crash *v1alpha1.Crash) error {
 	switch crash.Spec.CrashStrategy.Type {
 	case v1alpha1.CrashPod:
@@ -119,21 +120,29 @@ func (r *ReconcileCrash) crash(crash *v1alpha1.Crash) error {
 	}
 }
 
+// setStatus sets the given Crash Phase to the given phase.
+func (r *ReconcileCrash) setStatus(crash *v1alpha1.Crash, phase v1alpha1.Phase) error {
+	crash.Status.Phase = phase
+	return r.client.Status().Update(context.TODO(), crash)
+}
+
+// setStarted sets the given Crash Phase to Started.
 func (r *ReconcileCrash) setStarted(crash *v1alpha1.Crash) error {
-	crash.Status.Phase = v1alpha1.PhaseStarted
-	return r.client.Status().Update(context.TODO(), crash)
+	return r.setStatus(crash, v1alpha1.PhaseStarted)
 }
 
+// setRunning sets the given Crash Phase to Running.
 func (r *ReconcileCrash) setRunning(crash *v1alpha1.Crash) error {
-	crash.Status.Phase = v1alpha1.PhaseRunning
-	return r.client.Status().Update(context.TODO(), crash)
+	return r.setStatus(crash, v1alpha1.PhaseRunning)
 }
 
+// setRunning sets the given Crash Phase to Complete.
 func (r *ReconcileCrash) setComplete(crash *v1alpha1.Crash) error {
-	crash.Status.Phase = v1alpha1.PhaseComplete
-	return r.client.Status().Update(context.TODO(), crash)
+	return r.setStatus(crash, v1alpha1.PhaseComplete)
 }
 
+// getLocalPod returns the Pod to which the given Crash refers if the pod is
+// running on the local node, otherwise nil.
 func (r *ReconcileCrash) getLocalPod(crash *v1alpha1.Crash) (*v1.Pod, error) {
 	// Get the pod to determine whether the pod is running on this node
 	pod := &v1.Pod{}
@@ -150,6 +159,7 @@ func (r *ReconcileCrash) getLocalPod(crash *v1alpha1.Crash) (*v1.Pod, error) {
 	return pod, nil
 }
 
+// crashPod executes the given Crash by deleting the pod.
 func (r *ReconcileCrash) crashPod(crash *v1alpha1.Crash) error {
 	logger := log.WithValues("namespace", crash.Namespace, "name", crash.Name, "pod", crash.Spec.PodName)
 
@@ -181,6 +191,7 @@ func (r *ReconcileCrash) crashPod(crash *v1alpha1.Crash) error {
 	return nil
 }
 
+// crashContainer executes the given Crash by killing the Docker container(s).
 func (r *ReconcileCrash) crashContainer(crash *v1alpha1.Crash) error {
 	logger := log.WithValues("namespace", crash.Namespace, "name", crash.Name, "pod", crash.Spec.PodName)
 
