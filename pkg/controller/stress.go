@@ -22,10 +22,11 @@ import (
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"github.com/atomix/chaos-controller/pkg/util"
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"math/rand"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 )
@@ -64,7 +65,7 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      m.getStressName(pod),
 				Namespace: pod.Namespace,
-				Labels:    getLabels(m.monkey),
+				Labels:    getLabels(m.monkey, m.time),
 			},
 			Spec: v1alpha1.StressSpec{
 				PodName: pod.Name,
@@ -84,19 +85,22 @@ func (m *StressMonkey) create(pods []v1.Pod) error {
 }
 
 func (m *StressMonkey) delete(pods []v1.Pod) error {
-	for _, pod := range pods {
-		stress := &v1alpha1.Stress{}
-		err := m.context.client.Get(context.TODO(), m.getNamespacedName(pod), stress)
-		if err != nil {
-			if !errors.IsNotFound(err) {
-				return err
-			}
-			return nil
-		}
+	// Create list options from the labels assigned to stresses by this monkey.
+	listOptions := client.ListOptions{
+		Namespace:     m.monkey.Namespace,
+		LabelSelector: labels.SelectorFromSet(getLabels(m.monkey, m.time)),
+	}
 
+	// Load the list of stresses created by this monkey.
+	stresses := &v1alpha1.NetworkPartitionList{}
+	if err := m.context.client.List(context.TODO(), &listOptions, stresses); err != nil {
+		return err
+	}
+
+	// Iterate through stresses and update the phase to PhaseStopped.
+	for _, stress := range stresses.Items {
 		stress.Status.Phase = v1alpha1.PhaseStopped
-		err = m.context.client.Status().Update(context.TODO(), stress)
-		if err != nil {
+		if err := m.context.client.Status().Update(context.TODO(), &stress); err != nil {
 			return err
 		}
 	}

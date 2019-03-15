@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
+	"github.com/atomix/chaos-controller/pkg/util"
 	"github.com/go-logr/logr"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -45,10 +46,16 @@ import (
 	"time"
 )
 
+const (
+	AppLabel        = "chaos-controller"
+	MonkeyLabel     = "monkey"
+	MonkeyHashLabel = "monkey-hash"
+)
+
 var log = logf.Log.WithName("controller_chaosmonkey")
 
-// Add creates a new ChaosMonkey Controller and adds it to the Manager. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
+// AddController creates a new ChaosMonkey Controller and adds it to the Manager.
+// The Manager will set fields on the Controller  and Start it when the Manager is Started.
 func AddController(mgr manager.Manager) error {
 	ch := New(mgr.GetClient(), mgr.GetScheme(), mgr.GetConfig())
 	err := mgr.Add(ch)
@@ -80,7 +87,7 @@ func AddController(mgr manager.Manager) error {
 
 var _ reconcile.Reconciler = &ReconcileChaosMonkey{}
 
-// ReconcileChaosMonkey reconciles a ChaosMonkey object
+// ReconcileChaosMonkey reconciles ChaosMonkey resources.
 type ReconcileChaosMonkey struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
@@ -91,7 +98,7 @@ type ReconcileChaosMonkey struct {
 }
 
 // Reconcile reads that state of the cluster for a ChaosMonkey object and makes changes based on the state read
-// and what is in the ChaosMonkey.Spec
+// and what is in the ChaosMonkey.Spec.
 func (r *ReconcileChaosMonkey) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("namespace", request.Namespace, "name", request.Name)
 	reqLogger.Info("Reconciling ChaosMonkey")
@@ -123,6 +130,7 @@ func (r *ReconcileChaosMonkey) Reconcile(request reconcile.Request) (reconcile.R
 	return reconcile.Result{}, err
 }
 
+// Context holds objects needed to manage k8s resources as well as a contextual logger.
 type Context struct {
 	client  client.Client
 	scheme  *runtime.Scheme
@@ -131,7 +139,7 @@ type Context struct {
 	log     logr.Logger
 }
 
-// new returns a new Context with the given logger
+// new returns a new Context with the given logger.
 func (c Context) new(log logr.Logger) Context {
 	return Context{c.client, c.scheme, c.kubecli, c.config, log}
 }
@@ -148,7 +156,7 @@ func New(client runtimeclient.Client, scheme *runtime.Scheme, config *rest.Confi
 	}
 }
 
-// Chaos controller manages all chaos monkeys running in the cluster.
+// ChaosController manages all chaos monkeys running in the cluster.
 type ChaosController struct {
 	context Context
 	mu      sync.Mutex
@@ -189,7 +197,7 @@ func getName(name types.NamespacedName) string {
 	return fmt.Sprintf("%s-%s", name.Namespace, name.Name)
 }
 
-// GetMonkey returns a named chaos MonkeyController if one exists, otherwise nil.
+// RemoveMonkey removes and returns a named MonkeyController if one exists, otherwise nil.
 func (c *ChaosController) RemoveMonkey(name types.NamespacedName) *MonkeyController {
 	m := c.monkeys[getName(name)]
 	delete(c.monkeys, getName(name))
@@ -422,9 +430,10 @@ func (m *NilMonkey) delete(pods []v1.Pod) error {
 	return nil
 }
 
-func getLabels(monkey *v1alpha1.ChaosMonkey) map[string]string {
+func getLabels(monkey *v1alpha1.ChaosMonkey, time time.Time) map[string]string {
 	return map[string]string{
-		"app":    "chaos-controller",
-		"monkey": monkey.Name,
+		AppLabel:        "chaos-controller",
+		MonkeyLabel:     monkey.Name,
+		MonkeyHashLabel: util.ComputeHash(time),
 	}
 }

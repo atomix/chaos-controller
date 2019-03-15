@@ -22,10 +22,11 @@ import (
 	"github.com/atomix/chaos-controller/pkg/apis/chaos/v1alpha1"
 	"github.com/atomix/chaos-controller/pkg/util"
 	"k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"math/rand"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 )
@@ -160,7 +161,7 @@ func (m *PartitionMonkey) createPartition(local v1.Pod, remote v1.Pod) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      m.getPartitionName(local, remote),
 			Namespace: m.monkey.Namespace,
-			Labels:    getLabels(m.monkey),
+			Labels:    getLabels(m.monkey, m.time),
 		},
 		Spec: v1alpha1.NetworkPartitionSpec{
 			PodName:    local.Name,
@@ -174,23 +175,23 @@ func (m *PartitionMonkey) createPartition(local v1.Pod, remote v1.Pod) error {
 }
 
 func (m *PartitionMonkey) delete(pods []v1.Pod) error {
-	// Iterate through all pods and ensure partitions are deleted.
-	for _, local := range pods {
-		for _, remote := range pods {
-			partition := &v1alpha1.NetworkPartition{}
-			err := m.context.client.Get(context.TODO(), m.getNamespacedName(local, remote), partition)
-			if err != nil {
-				if !errors.IsNotFound(err) {
-					return err
-				}
-				return nil
-			}
+	// Create list options from the labels assigned to partitions by this monkey.
+	listOptions := client.ListOptions{
+		Namespace:     m.monkey.Namespace,
+		LabelSelector: labels.SelectorFromSet(getLabels(m.monkey, m.time)),
+	}
 
-			partition.Status.Phase = v1alpha1.PhaseStopped
-			err = m.context.client.Status().Update(context.TODO(), partition)
-			if err != nil {
-				return err
-			}
+	// Load the list of partitions created by this monkey.
+	partitions := &v1alpha1.NetworkPartitionList{}
+	if err := m.context.client.List(context.TODO(), &listOptions, partitions); err != nil {
+		return err
+	}
+
+	// Iterate through partitions and update the phase to PhaseStopped.
+	for _, partition := range partitions.Items {
+		partition.Status.Phase = v1alpha1.PhaseStopped
+		if err := m.context.client.Status().Update(context.TODO(), &partition); err != nil {
+			return err
 		}
 	}
 	return nil
