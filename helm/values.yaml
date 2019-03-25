@@ -16,7 +16,6 @@ controller:
       memory: 512Mi
 
 worker:
-  replicas: 1
   image:
     repository: atomix/chaos-worker
     tag: latest
